@@ -144,7 +144,8 @@ func calculateStatistics(sales []Sale) Stats {
 // ExportCSV exporte TOUTES les ventes en CSV - TRÈS BLOQUANT
 func ExportCSV(w http.ResponseWriter, r *http.Request) {
 	startTotal := time.Now()
-	fmt.Println("\n[V1] 🔥 === DÉBUT EXPORT CSV COMPLET ===")
+	fmt.Println()
+	fmt.Println("[V1] 🔥 === DÉBUT EXPORT CSV COMPLET ===")
 
 	// Parse le paramètre days
 	days := 365
@@ -206,7 +207,8 @@ func ExportCSV(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Printf("[V1] 🏁 DURÉE TOTALE: %v\n", time.Since(startTotal))
 	fmt.Printf("[V1] 📦 Taille du fichier: %d octets\n", buf.Len())
-	fmt.Println("[V1] === FIN EXPORT CSV ===\n")
+	fmt.Println("[V1] === FIN EXPORT CSV ===")
+	fmt.Println()
 
 	// Envoie le CSV
 	w.Header().Set("Content-Type", "text/csv")
@@ -217,7 +219,8 @@ func ExportCSV(w http.ResponseWriter, r *http.Request) {
 // ExportStatsCSV exporte les statistiques agrégées en CSV
 func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
 	startTotal := time.Now()
-	fmt.Println("\n[V1] 📊 === DÉBUT EXPORT STATS CSV ===")
+	fmt.Println()
+	fmt.Println("[V1] 📊 === DÉBUT EXPORT STATS CSV ===")
 
 	days := 365
 	if r.URL.Query().Get("days") != "" {
@@ -291,7 +294,8 @@ func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
 	time.Sleep(1 * time.Second)
 
 	fmt.Printf("[V1] 🏁 DURÉE TOTALE: %v\n", time.Since(startTotal))
-	fmt.Println("[V1] === FIN EXPORT STATS CSV ===\n")
+	fmt.Println("[V1] === FIN EXPORT STATS CSV ===")
+	fmt.Println()
 
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", "attachment; filename=statistiques_v1.csv")
