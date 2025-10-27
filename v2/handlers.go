@@ -57,15 +57,10 @@ func generateFakeSalesData(days int) []Sale {
 	// Vérifie le cache
 	cacheMutex.RLock()
 	if time.Since(cacheTime) < cacheDuration && cacheDays == days && len(cachedSales) > 0 {
-		fmt.Printf("[V2] ⚡ Utilisation du cache (%d ventes)\n", len(cachedSales))
 		cacheMutex.RUnlock()
 		return cachedSales
 	}
 	cacheMutex.RUnlock()
-
-	// Génère les données
-	start := time.Now()
-	fmt.Printf("[V2] ⏳ Génération de %d jours de données...\n", days)
 
 	categories := []string{"Électronique", "Vêtements", "Alimentation", "Maison", "Sport"}
 
@@ -96,16 +91,11 @@ func generateFakeSalesData(days int) []Sale {
 	cacheDays = days
 	cacheTime = time.Now()
 	cacheMutex.Unlock()
-
-	fmt.Printf("[V2] ✅ %d ventes générées en %v (mises en cache)\n", len(sales), time.Since(start))
 	return sales
 }
 
 // calculateStatistics calcule les stats de manière OPTIMISÉE
 func calculateStatistics(sales []Sale) Stats {
-	start := time.Now()
-	fmt.Printf("[V2] 📊 Calcul des statistiques sur %d ventes...\n", len(sales))
-
 	stats := Stats{
 		ParCategorie: make(map[string]CategoryStats),
 	}
@@ -152,7 +142,6 @@ func calculateStatistics(sales []Sale) Stats {
 		stats.TopProduits = productsList
 	}
 
-	fmt.Printf("[V2] ✅ Statistiques calculées en %v\n", time.Since(start))
 	return stats
 }
 
@@ -160,7 +149,6 @@ func calculateStatistics(sales []Sale) Stats {
 func getCachedStats(days int) Stats {
 	cacheMutex.RLock()
 	if time.Since(cacheTime) < cacheDuration && cacheDays == days && cachedStats.NbVentes > 0 {
-		fmt.Printf("[V2] ⚡ Utilisation des stats en cache\n")
 		cacheMutex.RUnlock()
 		return cachedStats
 	}
@@ -178,9 +166,6 @@ func getCachedStats(days int) Stats {
 
 // ExportCSV exporte TOUTES les ventes en CSV - VERSION OPTIMISÉE
 func ExportCSV(w http.ResponseWriter, r *http.Request) {
-	startTotal := time.Now()
-	fmt.Println("\n[V2] 🚀 === DÉBUT EXPORT CSV OPTIMISÉ ===")
-
 	days := 365
 	if r.URL.Query().Get("days") != "" {
 		fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
@@ -188,9 +173,6 @@ func ExportCSV(w http.ResponseWriter, r *http.Request) {
 
 	// OPTIMISATION: Utilise le cache
 	sales := generateFakeSalesData(days)
-
-	fmt.Printf("[V2] 📝 Écriture de %d lignes dans le CSV...\n", len(sales))
-	startWrite := time.Now()
 
 	var buf bytes.Buffer
 	writer := csv.NewWriter(&buf)
@@ -223,14 +205,6 @@ func ExportCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Printf("[V2] ✅ CSV écrit en %v\n", time.Since(startWrite))
-
-	// OPTIMISATION: Pas de post-traitement inutile
-
-	fmt.Printf("[V2] 🏁 DURÉE TOTALE: %v\n", time.Since(startTotal))
-	fmt.Printf("[V2] 📦 Taille du fichier: %d octets\n", buf.Len())
-	fmt.Println("[V2] === FIN EXPORT CSV ===\n")
-
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", "attachment; filename=ventes_export_v2.csv")
 	w.Write(buf.Bytes())
@@ -238,9 +212,6 @@ func ExportCSV(w http.ResponseWriter, r *http.Request) {
 
 // ExportStatsCSV exporte les statistiques agrégées en CSV - VERSION OPTIMISÉE
 func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
-	startTotal := time.Now()
-	fmt.Println("\n[V2] 📊 === DÉBUT EXPORT STATS CSV OPTIMISÉ ===")
-
 	days := 365
 	if r.URL.Query().Get("days") != "" {
 		fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
@@ -248,8 +219,6 @@ func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
 
 	// OPTIMISATION: Utilise le cache
 	stats := getCachedStats(days)
-
-	fmt.Println("[V2] 📝 Écriture du CSV des statistiques...")
 
 	var buf bytes.Buffer
 	writer := csv.NewWriter(&buf)
@@ -303,11 +272,6 @@ func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
 
 	writer.Flush()
 
-	// OPTIMISATION: Pas de sleep inutile
-
-	fmt.Printf("[V2] 🏁 DURÉE TOTALE: %v\n", time.Since(startTotal))
-	fmt.Println("[V2] === FIN EXPORT STATS CSV ===\n")
-
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", "attachment; filename=statistiques_v2.csv")
 	w.Write(buf.Bytes())
@@ -315,8 +279,6 @@ func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
 
 // GetStats retourne uniquement les statistiques en JSON - VERSION OPTIMISÉE
 func GetStats(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-
 	days := 365
 	if r.URL.Query().Get("days") != "" {
 		fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
@@ -326,6 +288,4 @@ func GetStats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
-
-	fmt.Printf("[V2] ⚡ Stats générées en %v\n", time.Since(start))
 }

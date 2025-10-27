@@ -31,3 +31,7 @@ profiles/*.prof
 # Build output
 eval
 eval.exe
+
+# Benchmark results
+benchmark_*.md
+benchmark_*.json
