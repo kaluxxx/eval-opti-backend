@@ -44,12 +44,12 @@ type ProductStat struct {
 
 // Cache simple pour les données
 var (
-	cachedSales      []Sale
-	cachedStats      Stats
-	cacheTime        time.Time
-	cacheDays        int
-	cacheMutex       sync.RWMutex
-	cacheDuration    = 5 * time.Minute // Cache valide pendant 5 minutes
+	cachedSales   []Sale
+	cachedStats   Stats
+	cacheTime     time.Time
+	cacheDays     int
+	cacheMutex    sync.RWMutex
+	cacheDuration = 5 * time.Minute // Cache valide pendant 5 minutes
 )
 
 // generateFakeSalesData génère des données de ventes - OPTIMISÉ avec cache
@@ -64,7 +64,7 @@ func generateFakeSalesData(days int) []Sale {
 
 	categories := []string{"Électronique", "Vêtements", "Alimentation", "Maison", "Sport"}
 
-	// OPTIMISATION: Préalloue la capacité du slice
+	// OPTIMISATION : Pré-alloue la capacité du slice
 	estimatedSize := days * 100 // estimation de 100 ventes/jour en moyenne
 	sales := make([]Sale, 0, estimatedSize)
 
@@ -100,7 +100,7 @@ func calculateStatistics(sales []Sale) Stats {
 		ParCategorie: make(map[string]CategoryStats),
 	}
 
-	// OPTIMISATION: Une seule boucle pour tout calculer
+	// OPTIMISATION : Une seule boucle pour tout calculer
 	totalCA := 0.0
 	productsCA := make(map[string]float64)
 
@@ -124,7 +124,7 @@ func calculateStatistics(sales []Sale) Stats {
 		stats.MoyenneVente = totalCA / float64(len(sales))
 	}
 
-	// OPTIMISATION: Tri efficace avec sort.Slice au lieu de bubble sort
+	// OPTIMISATION : Tri efficace avec sort. Slice au lieu de bubble sort
 	productsList := make([]ProductStat, 0, len(productsCA))
 	for product, ca := range productsCA {
 		productsList = append(productsList, ProductStat{Product: product, CA: ca})
@@ -135,7 +135,7 @@ func calculateStatistics(sales []Sale) Stats {
 		return productsList[i].CA > productsList[j].CA
 	})
 
-	// Prend le top 10
+	// Prends le top 10
 	if len(productsList) > 10 {
 		stats.TopProduits = productsList[:10]
 	} else {
@@ -168,7 +168,10 @@ func getCachedStats(days int) Stats {
 func ExportCSV(w http.ResponseWriter, r *http.Request) {
 	days := 365
 	if r.URL.Query().Get("days") != "" {
-		fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
+		_, err := fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
+		if err != nil {
+			return
+		}
 	}
 
 	// OPTIMISATION: Utilise le cache
@@ -179,7 +182,10 @@ func ExportCSV(w http.ResponseWriter, r *http.Request) {
 
 	// Écrit l'en-tête
 	header := []string{"Date", "Produit", "Quantité", "Prix", "Client", "Catégorie", "CA Ligne"}
-	writer.Write(header)
+	err := writer.Write(header)
+	if err != nil {
+		return
+	}
 
 	// OPTIMISATION: Batch write, pas de sleep artificiel
 	for _, sale := range sales {
@@ -195,7 +201,10 @@ func ExportCSV(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("%.2f", caLigne),
 		}
 
-		writer.Write(row)
+		err := writer.Write(row)
+		if err != nil {
+			return
+		}
 	}
 
 	writer.Flush()
@@ -207,14 +216,20 @@ func ExportCSV(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", "attachment; filename=ventes_export_v2.csv")
-	w.Write(buf.Bytes())
+	_, err = w.Write(buf.Bytes())
+	if err != nil {
+		return
+	}
 }
 
 // ExportStatsCSV exporte les statistiques agrégées en CSV - VERSION OPTIMISÉE
 func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
 	days := 365
 	if r.URL.Query().Get("days") != "" {
-		fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
+		_, err := fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
+		if err != nil {
+			return
+		}
 	}
 
 	// OPTIMISATION: Utilise le cache
@@ -224,16 +239,40 @@ func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
 	writer := csv.NewWriter(&buf)
 
 	// Section 1: Stats globales
-	writer.Write([]string{"STATISTIQUES GLOBALES"})
-	writer.Write([]string{"Métrique", "Valeur"})
-	writer.Write([]string{"CA Total", fmt.Sprintf("%.2f", stats.TotalCA)})
-	writer.Write([]string{"Nombre de ventes", strconv.Itoa(stats.NbVentes)})
-	writer.Write([]string{"Moyenne par vente", fmt.Sprintf("%.2f", stats.MoyenneVente)})
-	writer.Write([]string{})
+	err := writer.Write([]string{"STATISTIQUES GLOBALES"})
+	if err != nil {
+		return
+	}
+	err = writer.Write([]string{"Métrique", "Valeur"})
+	if err != nil {
+		return
+	}
+	err = writer.Write([]string{"CA Total", fmt.Sprintf("%.2f", stats.TotalCA)})
+	if err != nil {
+		return
+	}
+	err = writer.Write([]string{"Nombre de ventes", strconv.Itoa(stats.NbVentes)})
+	if err != nil {
+		return
+	}
+	err = writer.Write([]string{"Moyenne par vente", fmt.Sprintf("%.2f", stats.MoyenneVente)})
+	if err != nil {
+		return
+	}
+	err = writer.Write([]string{})
+	if err != nil {
+		return
+	}
 
-	// Section 2: Stats par catégorie
-	writer.Write([]string{"STATISTIQUES PAR CATÉGORIE"})
-	writer.Write([]string{"Catégorie", "CA", "Nombre de ventes"})
+	// Section 2 : Stats par catégorie
+	err = writer.Write([]string{"STATISTIQUES PAR CATÉGORIE"})
+	if err != nil {
+		return
+	}
+	err = writer.Write([]string{"Catégorie", "CA", "Nombre de ventes"})
+	if err != nil {
+		return
+	}
 
 	// OPTIMISATION: Tri efficace avec sort.Slice
 	type catSort struct {
@@ -251,41 +290,65 @@ func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
 	})
 
 	for _, cat := range catList {
-		writer.Write([]string{
+		err = writer.Write([]string{
 			cat.name,
 			fmt.Sprintf("%.2f", cat.stat.CA),
 			strconv.Itoa(cat.stat.NbVentes),
 		})
+		if err != nil {
+			return
+		}
 	}
-	writer.Write([]string{})
+	err = writer.Write([]string{})
+	if err != nil {
+		return
+	}
 
 	// Section 3: Top produits
-	writer.Write([]string{"TOP 10 PRODUITS"})
-	writer.Write([]string{"Rang", "Produit", "CA"})
+	err = writer.Write([]string{"TOP 10 PRODUITS"})
+	if err != nil {
+		return
+	}
+	err = writer.Write([]string{"Rang", "Produit", "CA"})
+	if err != nil {
+		return
+	}
 	for i, prod := range stats.TopProduits {
-		writer.Write([]string{
+		err = writer.Write([]string{
 			strconv.Itoa(i + 1),
 			prod.Product,
 			fmt.Sprintf("%.2f", prod.CA),
 		})
+		if err != nil {
+			return
+		}
 	}
 
 	writer.Flush()
 
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", "attachment; filename=statistiques_v2.csv")
-	w.Write(buf.Bytes())
+	_, err = w.Write(buf.Bytes())
+	if err != nil {
+		return
+	}
 }
 
 // GetStats retourne uniquement les statistiques en JSON - VERSION OPTIMISÉE
 func GetStats(w http.ResponseWriter, r *http.Request) {
 	days := 365
 	if r.URL.Query().Get("days") != "" {
-		fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
+		_, err := fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
+		if err != nil {
+			return
+		}
 	}
 
 	stats := getCachedStats(days)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	err := json.NewEncoder(w).Encode(stats)
+	if err != nil {
+		return
+	}
 }

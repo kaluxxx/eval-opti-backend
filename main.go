@@ -27,9 +27,12 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	json.NewEncoder(w).Encode(map[string]string{
+func healthHandler(w http.ResponseWriter, _ *http.Request) {
+	err := json.NewEncoder(w).Encode(map[string]string{
 		"status":  "ok",
-		"message": "API v1 (non-opti) et v2 (opti) disponibles",
+		"message": "API v1 (non-optimisé) et v2 (optimisé) disponibles",
 	})
+	if err != nil {
+		return
+	}
 }
