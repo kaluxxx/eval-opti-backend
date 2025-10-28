@@ -12,7 +12,6 @@ import (
 	"eval/database"
 )
 
-// Types pour V1
 type OrderItemTemp struct {
 	ID        int64
 	OrderID   int64
@@ -28,10 +27,6 @@ type ProductWithCategories struct {
 	Categories []string
 }
 
-// GetStats - V1 NON OPTIMISÉE avec problème N+1
-// ❌ Charge les order_items puis fait des requêtes individuelles pour chaque relation
-// ❌ Pas de JOIN, boucles multiples
-// ❌ Bubble sort O(n²)
 func GetStats(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	fmt.Println()
@@ -44,7 +39,6 @@ func GetStats(w http.ResponseWriter, r *http.Request) {
 
 	startDate := time.Now().AddDate(0, 0, -days)
 
-	// ❌ PROBLÈME N+1 #1: Récupère tous les order_items
 	fmt.Printf("[V1] ⏳ Chargement des order_items (≥ %d jours)...\n", days)
 	loadStart := time.Now()
 
@@ -75,15 +69,13 @@ func GetStats(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Printf("[V1] 📦 %d lignes de commande chargées en %v\n", len(orderItems), time.Since(loadStart))
 
-	// ❌ PROBLÈME N+1 #2: Pour chaque order_item, récupère le produit individuellement
 	fmt.Println("[V1] 🐌 Récupération des produits (N+1 problem)...")
 	fetchStart := time.Now()
 
 	productsMap := make(map[int]ProductWithCategories)
 
-	for i, oi := range orderItems {
+	for _, oi := range orderItems {
 		if _, exists := productsMap[oi.ProductID]; !exists {
-			// ❌ Requête pour CHAQUE produit distinct
 			var productName string
 			err := database.DB.QueryRow("SELECT name FROM products WHERE id = $1", oi.ProductID).Scan(&productName)
 			if err != nil {
@@ -91,7 +83,6 @@ func GetStats(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// ❌ Requête pour récupérer les catégories de ce produit
 			catRows, err := database.DB.Query(`
 				SELECT c.name
 				FROM categories c
@@ -117,16 +108,10 @@ func GetStats(w http.ResponseWriter, r *http.Request) {
 				Categories: categories,
 			}
 		}
-
-		// ❌ Sleep artificiel pour simuler la lenteur
-		if i%100 == 0 && i > 0 {
-			time.Sleep(10 * time.Millisecond)
-		}
 	}
 
 	fmt.Printf("[V1] 📦 %d produits récupérés en %v\n", len(productsMap), time.Since(fetchStart))
 
-	// ❌ PROBLÈME #3: Calculs inefficaces en Go avec boucles multiples
 	stats := calculateStatsInefficient(orderItems, productsMap)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -141,7 +126,6 @@ func GetStats(w http.ResponseWriter, r *http.Request) {
 	fmt.Println()
 }
 
-// calculateStatsInefficient - VOLONTAIREMENT INEFFICACE
 func calculateStatsInefficient(orderItems []OrderItemTemp, productsMap map[int]ProductWithCategories) database.Stats {
 	fmt.Println("[V1] 🐌 Calcul des stats avec algorithmes inefficaces...")
 
@@ -149,7 +133,6 @@ func calculateStatsInefficient(orderItems []OrderItemTemp, productsMap map[int]P
 		ParCategorie: make(map[string]database.CategoryStats),
 	}
 
-	// ❌ Boucle 1: CA total et moyenne
 	fmt.Println("[V1]    Boucle 1: Calcul CA total...")
 	totalCA := 0.0
 	for _, oi := range orderItems {
@@ -161,7 +144,6 @@ func calculateStatsInefficient(orderItems []OrderItemTemp, productsMap map[int]P
 		stats.MoyenneVente = totalCA / float64(len(orderItems))
 	}
 
-	// ❌ Boucle 2: Stats par catégorie (inefficace - reboucle plusieurs fois)
 	fmt.Println("[V1]    Boucles multiples: Stats par catégorie...")
 	categorySet := make(map[string]bool)
 	for _, product := range productsMap {
@@ -175,7 +157,6 @@ func calculateStatsInefficient(orderItems []OrderItemTemp, productsMap map[int]P
 		caCategorie := 0.0
 		count := 0
 
-		// ❌ Reboucle sur TOUS les orderItems pour chaque catégorie
 		for _, oi := range orderItems {
 			product := productsMap[oi.ProductID]
 			hasCategory := false
@@ -196,12 +177,8 @@ func calculateStatsInefficient(orderItems []OrderItemTemp, productsMap map[int]P
 			CA:       caCategorie,
 			NbVentes: count,
 		}
-
-		// ❌ Sleep pour simuler un traitement lent
-		time.Sleep(30 * time.Millisecond)
 	}
 
-	// ❌ Boucle 3: CA par produit
 	fmt.Println("[V1]    Boucle 3: Calcul CA par produit...")
 	productsCA := make(map[int]struct {
 		Name     string
@@ -223,7 +200,6 @@ func calculateStatsInefficient(orderItems []OrderItemTemp, productsMap map[int]P
 		}
 	}
 
-	// ❌ BUBBLE SORT O(n²) - Le pire algorithme de tri !
 	fmt.Println("[V1]    🐌 Tri avec bubble sort O(n²)...")
 	productsList := make([]database.ProductStat, 0, len(productsCA))
 	for productID, data := range productsCA {
@@ -256,7 +232,6 @@ func calculateStatsInefficient(orderItems []OrderItemTemp, productsMap map[int]P
 	return stats
 }
 
-// ExportCSV - V1 NON OPTIMISÉE
 func ExportCSV(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	fmt.Println()
@@ -269,7 +244,6 @@ func ExportCSV(w http.ResponseWriter, r *http.Request) {
 
 	startDate := time.Now().AddDate(0, 0, -days)
 
-	// Récupère les order_items
 	query := `
 		SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.unit_price, oi.subtotal, o.order_date
 		FROM order_items oi
@@ -303,7 +277,6 @@ func ExportCSV(w http.ResponseWriter, r *http.Request) {
 
 		rows.Scan(&id, &orderID, &productID, &quantity, &unitPrice, &subtotal, &orderDate)
 
-		// ❌ N+1: Récupère le nom du produit pour chaque ligne
 		var productName string
 		database.DB.QueryRow("SELECT name FROM products WHERE id = $1", productID).Scan(&productName)
 
@@ -318,19 +291,11 @@ func ExportCSV(w http.ResponseWriter, r *http.Request) {
 		writer.Write(row)
 
 		count++
-
-		// ❌ Sleep artificiel
-		if count%1000 == 0 {
-			time.Sleep(10 * time.Millisecond)
-			fmt.Printf("[V1]    ... %d lignes écrites\n", count)
-		}
 	}
 
 	writer.Flush()
 
-	// ❌ Sleep final
 	fmt.Println("[V1] ⏳ Post-traitement...")
-	time.Sleep(2 * time.Second)
 
 	fmt.Printf("[V1] 🏁 Export terminé: %d lignes en %v\n", count, time.Since(start))
 	fmt.Println("[V1] === FIN EXPORT CSV ===")
@@ -341,7 +306,6 @@ func ExportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Write(buf.Bytes())
 }
 
-// ExportStatsCSV - V1 NON OPTIMISÉE
 func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
 	fmt.Println()
 	fmt.Println("[V1] 🐌 === DÉBUT EXPORT STATS CSV ===")
@@ -353,7 +317,6 @@ func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
 
 	startDate := time.Now().AddDate(0, 0, -days)
 
-	// Récupère et recalcule tout (pas de cache)
 	query := `
 		SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.unit_price, oi.subtotal
 		FROM order_items oi
@@ -375,7 +338,6 @@ func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
 		orderItems = append(orderItems, oi)
 	}
 
-	// Récupère les produits (N+1)
 	productsMap := make(map[int]ProductWithCategories)
 	for _, oi := range orderItems {
 		if _, exists := productsMap[oi.ProductID]; !exists {
@@ -438,8 +400,6 @@ func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
 
 	writer.Flush()
 
-	time.Sleep(1 * time.Second)
-
 	fmt.Println("[V1] === FIN EXPORT STATS CSV ===")
 	fmt.Println()
 
@@ -448,10 +408,6 @@ func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
 	w.Write(buf.Bytes())
 }
 
-// ExportParquet - V1 NON OPTIMISÉE (charge tout en mémoire)
-// ❌ Charge TOUTES les données en mémoire avant d'écrire
-// ❌ N+1 problem pour récupérer les informations
-// ❌ Pas de streaming
 func ExportParquet(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	fmt.Println()
@@ -464,7 +420,6 @@ func ExportParquet(w http.ResponseWriter, r *http.Request) {
 
 	startDate := time.Now().AddDate(0, 0, -days)
 
-	// ❌ PROBLÈME #1: Charge TOUT en mémoire
 	fmt.Println("[V1] 🐌 Chargement de TOUTES les données en mémoire...")
 	query := `
 		SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.unit_price, oi.subtotal,
@@ -495,7 +450,6 @@ func ExportParquet(w http.ResponseWriter, r *http.Request) {
 		PaymentMethodID int
 	}
 
-	// ❌ Charge TOUT en mémoire (peut consommer plusieurs GB)
 	var allRows []TempRow
 	for rows.Next() {
 		var row TempRow
@@ -507,7 +461,6 @@ func ExportParquet(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Printf("[V1] 📦 %d lignes chargées en mémoire (%v)\n", len(allRows), time.Since(start))
 
-	// ❌ PROBLÈME #2: N+1 pour récupérer les noms
 	fmt.Println("[V1] 🐌 Récupération des informations (N+1)...")
 	productsMap := make(map[int]string)
 	customersMap := make(map[int]string)
@@ -515,7 +468,7 @@ func ExportParquet(w http.ResponseWriter, r *http.Request) {
 	paymentMethodsMap := make(map[int]string)
 
 	count := 0
-	for i, row := range allRows {
+	for _, row := range allRows {
 		// Produit
 		if _, exists := productsMap[row.ProductID]; !exists {
 			var name string
@@ -546,16 +499,11 @@ func ExportParquet(w http.ResponseWriter, r *http.Request) {
 		}
 
 		count++
-		// ❌ Sleep artificiel
-		if i%100 == 0 && i > 0 {
-			time.Sleep(10 * time.Millisecond)
-		}
 	}
 
 	fmt.Printf("[V1] 📦 Informations récupérées: %d produits, %d clients, %d magasins\n",
 		len(productsMap), len(customersMap), len(storesMap))
 
-	// ❌ PROBLÈME #3: Crée TOUTES les structures en mémoire
 	fmt.Println("[V1] 🐌 Conversion en structures Parquet (tout en mémoire)...")
 	parquetRows := make([]database.SaleParquet, len(allRows))
 	for i, row := range allRows {
@@ -574,9 +522,7 @@ func ExportParquet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// ❌ Sleep final
 	fmt.Println("[V1] ⏳ Post-traitement...")
-	time.Sleep(2 * time.Second)
 
 	fmt.Printf("[V1] 🏁 Export Parquet terminé: %d lignes en %v\n", len(parquetRows), time.Since(start))
 	fmt.Printf("[V1] ⚠️  Mémoire utilisée: ~%d MB (estimation)\n", (len(parquetRows)*200)/1024/1024)
@@ -586,6 +532,5 @@ func ExportParquet(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", "attachment; filename=ventes_v1.parquet")
 
-	// Pour V1, on renvoie juste un message (écriture Parquet réelle serait trop complexe ici)
 	w.Write([]byte(fmt.Sprintf("V1 Parquet export: %d rows processed in %v", len(parquetRows), time.Since(start))))
 }
