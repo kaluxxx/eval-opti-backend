@@ -20,8 +20,8 @@ Write-Host "   Profiling de l'application Go" -ForegroundColor Cyan
 Write-Host "=====================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Crée un dossier pour les profils
-$profileDir = "profiles"
+# Crée un dossier pour les profils (relatif au script)
+$profileDir = "..\profiles"
 if (-not (Test-Path $profileDir)) {
     New-Item -ItemType Directory -Path $profileDir | Out-Null
     Write-Host "[+] Dossier 'profiles' créé" -ForegroundColor Green

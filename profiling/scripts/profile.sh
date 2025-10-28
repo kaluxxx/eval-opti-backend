@@ -9,7 +9,7 @@ TYPE="${1:-all}"
 DURATION="${2:-30}"
 SERVER_URL="${3:-http://localhost:8080}"
 
-PROFILE_DIR="profiles"
+PROFILE_DIR="../profiles"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
 # Couleurs

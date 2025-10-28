@@ -25,13 +25,17 @@ go.work
 .DS_Store
 Thumbs.db
 
-# Profiling files
-profiles/*.prof
+# Profiling files (à la racine uniquement)
+/*.prof
 
 # Build output
 eval
 eval.exe
 
-# Benchmark results
-benchmark_*.md
-benchmark_*.json
+# Benchmark results (à la racine uniquement)
+/benchmark_*.md
+/benchmark_*.json
+
+# Autoriser les résultats dans les dossiers organisés
+!benchmarks/results/
+!profiling/profiles/
