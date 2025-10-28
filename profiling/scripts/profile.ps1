@@ -106,13 +106,17 @@ function Run-Benchmarks {
 }
 
 function Generate-Load {
+    param(
+        [string]$Version = "v1",
+        [int]$Days = 365
+    )
     Write-Host "`n[*] Génération de charge pour le profiling..." -ForegroundColor Yellow
-    Write-Host "[*] Envoi de 5 requêtes /api/stats?days=365..." -ForegroundColor Yellow
+    Write-Host "[*] Envoi de 5 requêtes /api/$Version/stats?days=$Days..." -ForegroundColor Yellow
 
     for ($i = 1; $i -le 5; $i++) {
-        Write-Host "  Requête $i/5..." -ForegroundColor Gray
+        Write-Host "  Requête $i/5 ($Version)..." -ForegroundColor Gray
         try {
-            Invoke-WebRequest -Uri "$ServerUrl/api/stats?days=365" -Method GET -TimeoutSec 60 | Out-Null
+            Invoke-WebRequest -Uri "$ServerUrl/api/$Version/stats?days=$Days" -Method GET -TimeoutSec 60 | Out-Null
         } catch {
             Write-Host "  Erreur sur la requête $i" -ForegroundColor Red
         }
@@ -135,26 +139,45 @@ if ($Type -ne "bench") {
 # Exécution selon le type demandé
 switch ($Type) {
     "cpu" {
-        Start-Job -ScriptBlock { param($url) Start-Sleep -Seconds 2; Invoke-WebRequest -Uri "$url/api/stats?days=365" -Method GET -TimeoutSec 60 | Out-Null } -ArgumentList $ServerUrl | Out-Null
+        # Profile both V1 and V2
+        Write-Host "`n[*] Profiling V1 (Non optimisé)..." -ForegroundColor Yellow
+        Start-Job -ScriptBlock {
+            param($url)
+            Start-Sleep -Seconds 2
+            Invoke-WebRequest -Uri "$url/api/v1/stats?days=365" -Method GET -TimeoutSec 60 | Out-Null
+        } -ArgumentList $ServerUrl | Out-Null
         Capture-CPUProfile
+
+        Write-Host "`n[*] Profiling V2 (Optimisé)..." -ForegroundColor Yellow
+        Start-Job -ScriptBlock {
+            param($url)
+            Start-Sleep -Seconds 2
+            Invoke-WebRequest -Uri "$url/api/v2/stats?days=365" -Method GET -TimeoutSec 60 | Out-Null
+        } -ArgumentList $ServerUrl | Out-Null
+        Start-Sleep -Seconds ($Duration + 3)
     }
     "mem" {
-        Generate-Load
+        Write-Host "`n[*] Profiling mémoire V1..." -ForegroundColor Yellow
+        Generate-Load -Version "v1" -Days 365
         Capture-MemProfile
+
+        Write-Host "`n[*] Profiling mémoire V2..." -ForegroundColor Yellow
+        Generate-Load -Version "v2" -Days 365
+        Start-Sleep -Seconds 2
     }
     "bench" {
         Run-Benchmarks
     }
     "all" {
-        Write-Host "[*] Profiling complet: CPU + Mémoire" -ForegroundColor Yellow
+        Write-Host "[*] Profiling complet: CPU + Mémoire (V1 & V2)" -ForegroundColor Yellow
 
-        # Lance une charge en arrière-plan
+        # Lance une charge V1 en arrière-plan
         $job = Start-Job -ScriptBlock {
             param($url)
             Start-Sleep -Seconds 2
-            for ($i = 1; $i -le 10; $i++) {
+            for ($i = 1; $i -le 5; $i++) {
                 try {
-                    Invoke-WebRequest -Uri "$url/api/stats?days=365" -Method GET -TimeoutSec 60 | Out-Null
+                    Invoke-WebRequest -Uri "$url/api/v1/stats?days=365" -Method GET -TimeoutSec 60 | Out-Null
                 } catch {}
                 Start-Sleep -Milliseconds 500
             }
@@ -164,8 +187,12 @@ switch ($Type) {
         Wait-Job $job | Out-Null
         Remove-Job $job
 
-        Generate-Load
+        Generate-Load -Version "v1" -Days 365
         Capture-MemProfile
+
+        Write-Host "`n[*] Comparaison avec V2..." -ForegroundColor Yellow
+        Generate-Load -Version "v2" -Days 365
+        Start-Sleep -Seconds 2
     }
 }
 

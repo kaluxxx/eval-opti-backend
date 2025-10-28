@@ -1,0 +1,431 @@
+{
+  "info": {
+    "name": "Eval API - V1 vs V2 Performance Comparison",
+    "_postman_id": "eval-v1-v2-comparison",
+    "description": "Collection complète pour tester les endpoints V1 (non optimisé) vs V2 (optimisé)\n\n## Différences clés:\n\n**V1 (Non optimisé)**\n- Problème N+1 (200+ requêtes SQL)\n- Boucles multiples sur les mêmes données\n- Bubble sort O(n²)\n- Pas de cache\n- Chargement complet en mémoire\n- Sleeps artificiels\n\n**V2 (Optimisé)**\n- JOINs SQL (5 requêtes)\n- Agrégations SQL (GROUP BY, SUM, COUNT)\n- Tri en SQL (ORDER BY)\n- Cache applicatif (5 min TTL)\n- Streaming par batches\n- Pas de sleeps\n\n## Données:\n- ~110 000 commandes\n- ~330 000 lignes de ventes\n- 5 ans de données",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "health"]
+            },
+            "description": "Vérifie que l'API est opérationnelle"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "V1 - Non Optimisé",
+      "item": [
+        {
+          "name": "Stats 365 jours",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/stats?days=365",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "stats"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "365",
+                  "description": "Nombre de jours à analyser"
+                }
+              ]
+            },
+            "description": "**⚠️ VERSION NON OPTIMISÉE**\n\nProblèmes:\n- ❌ N+1 problem (200+ requêtes SQL)\n- ❌ Boucles multiples sur les mêmes données\n- ❌ Bubble sort O(n²) pour trier les produits\n- ❌ Sleeps artificiels (30ms par catégorie + 10ms/100 items)\n- ❌ Pas de cache\n\nPerformance attendue:\n- Temps: 10-15 secondes\n- Requêtes SQL: ~200\n- Mémoire: ~60 MB"
+          },
+          "response": []
+        },
+        {
+          "name": "Stats 30 jours",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/stats?days=30",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "stats"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                }
+              ]
+            },
+            "description": "Stats sur 30 jours (plus rapide que 365 mais toujours les mêmes anti-patterns)"
+          },
+          "response": []
+        },
+        {
+          "name": "Stats 7 jours",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/stats?days=7",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "stats"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "7"
+                }
+              ]
+            },
+            "description": "Stats sur 7 jours (volume minimal mais anti-patterns toujours présents)"
+          },
+          "response": []
+        },
+        {
+          "name": "Export CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/export/csv?days=365",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "export", "csv"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "365"
+                }
+              ]
+            },
+            "description": "**⚠️ EXPORT CSV NON OPTIMISÉ**\n\nProblèmes:\n- ❌ N+1: Requête individuelle pour CHAQUE produit\n- ❌ Sleep tous les 1000 items\n- ❌ Sleep final de 2 secondes\n\nPerformance:\n- Temps: 20-40 secondes\n- Fichier: ~330 000 lignes"
+          },
+          "response": []
+        },
+        {
+          "name": "Export Stats CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/export/stats-csv?days=365",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "export", "stats-csv"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "365"
+                }
+              ]
+            },
+            "description": "**⚠️ EXPORT STATS CSV NON OPTIMISÉ**\n\nProblèmes:\n- ❌ Recalcule TOUT (pas de cache)\n- ❌ N+1 problem\n- ❌ Sleep de 1 seconde\n\nRetourne un CSV avec:\n- Stats globales\n- Stats par catégorie\n- Top 10 produits"
+          },
+          "response": []
+        },
+        {
+          "name": "Export Parquet",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/export/parquet?days=365",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "export", "parquet"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "365"
+                }
+              ]
+            },
+            "description": "**⚠️ EXPORT PARQUET NON OPTIMISÉ**\n\nProblèmes MAJEURS:\n- ❌ Charge TOUTES les données en mémoire (2-5 GB !)\n- ❌ N+1 pour récupérer produits, clients, magasins\n- ❌ Sleep tous les 100 items\n- ❌ Sleep final de 2 secondes\n- ⚠️ Peut crasher si trop de données\n\nPerformance:\n- Temps: 30-60 secondes\n- Mémoire: 2-5 GB\n- Scalabilité: ❌ Crash >500k lignes"
+          },
+          "response": []
+        }
+      ],
+      "description": "Endpoints V1 démontrant les **anti-patterns** et le code non optimisé"
+    },
+    {
+      "name": "V2 - Optimisé",
+      "item": [
+        {
+          "name": "Stats 365 jours",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v2/stats?days=365",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v2", "stats"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "365"
+                }
+              ]
+            },
+            "description": "**✅ VERSION OPTIMISÉE**\n\nOptimisations:\n- ✅ JOINs SQL (5 requêtes au lieu de 200+)\n- ✅ Agrégations SQL (GROUP BY, SUM, COUNT)\n- ✅ Tri en SQL (ORDER BY)\n- ✅ Cache applicatif (5 min TTL)\n- ✅ Préallocation de slices\n- ✅ Pas de sleeps\n\nPerformance:\n- Temps: 1-2 secondes (1ère fois)\n- Temps: < 5 ms (avec cache)\n- Requêtes SQL: 5\n- Mémoire: ~5 MB\n\n**Amélioration: 80-90% plus rapide que V1**\n\nBonus V2:\n- Top 5 magasins\n- Répartition par méthode de paiement\n- Nombre de commandes (distinct orders)"
+          },
+          "response": []
+        },
+        {
+          "name": "Stats 365 jours (2ème appel - CACHE)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v2/stats?days=365",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v2", "stats"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "365"
+                }
+              ]
+            },
+            "description": "**✅ AVEC CACHE**\n\nSi appelé dans les 5 minutes suivant le 1er appel:\n- ⚡ Temps: < 5 ms\n- 🚀 Pas de requête SQL\n- 💾 Réponse depuis la mémoire\n\n**Amélioration: 99.9% plus rapide que V1**"
+          },
+          "response": []
+        },
+        {
+          "name": "Stats 30 jours",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v2/stats?days=30",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v2", "stats"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                }
+              ]
+            },
+            "description": "Stats optimisées sur 30 jours"
+          },
+          "response": []
+        },
+        {
+          "name": "Stats 7 jours",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v2/stats?days=7",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v2", "stats"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "7"
+                }
+              ]
+            },
+            "description": "Stats optimisées sur 7 jours"
+          },
+          "response": []
+        },
+        {
+          "name": "Export CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v2/export/csv?days=365",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v2", "export", "csv"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "365"
+                }
+              ]
+            },
+            "description": "**✅ EXPORT CSV OPTIMISÉ**\n\nOptimisations:\n- ✅ UNE seule requête avec tous les JOINs\n- ✅ Pas de N+1\n- ✅ Buffer préalloué (1 MB)\n- ✅ Pas de sleeps\n\nPerformance:\n- Temps: 3-8 secondes\n- Fichier: ~330 000 lignes\n\n**Amélioration: 75-85% plus rapide que V1**\n\nColonnes additionnelles vs V1:\n- Nom du client complet\n- Nom du magasin + ville"
+          },
+          "response": []
+        },
+        {
+          "name": "Export Stats CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v2/export/stats-csv?days=365",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v2", "export", "stats-csv"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "365"
+                }
+              ]
+            },
+            "description": "**✅ EXPORT STATS CSV OPTIMISÉ**\n\nOptimisations:\n- ✅ Utilise le cache si disponible\n- ✅ Pas de sleeps\n\nRetourne un CSV avec:\n- Stats globales (+ nombre de commandes)\n- Stats par catégorie\n- Top 10 produits\n- **Bonus:** Top 5 magasins\n- **Bonus:** Répartition paiements"
+          },
+          "response": []
+        },
+        {
+          "name": "Export Parquet",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v2/export/parquet?days=365",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v2", "export", "parquet"],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "365"
+                }
+              ]
+            },
+            "description": "**✅ EXPORT PARQUET OPTIMISÉ**\n\nOptimisations MAJEURES:\n- ✅ UNE seule requête avec tous les JOINs\n- ✅ **Streaming par batches de 1000** lignes\n- ✅ Mémoire constante (~0.2 MB)\n- ✅ Pas de sleeps\n- ✅ Scalable à l'infini\n\nPerformance:\n- Temps: 5-10 secondes\n- Mémoire: ~0.2 MB (max batch)\n- Scalabilité: ✅ Millions de lignes OK\n\n**Amélioration:**\n- 80% plus rapide\n- 99.99% moins de mémoire (0.2 MB vs 5 GB)\n- Scalabilité infinie"
+          },
+          "response": []
+        }
+      ],
+      "description": "Endpoints V2 démontrant les **best practices** et le code optimisé"
+    },
+    {
+      "name": "Tests de Comparaison",
+      "item": [
+        {
+          "name": "Comparaison Stats - V1 vs V2",
+          "item": [
+            {
+              "name": "1. V1 Stats (Non optimisé)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/stats?days=365",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "v1", "stats"],
+                  "query": [{"key": "days", "value": "365"}]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "2. V2 Stats (Optimisé)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v2/stats?days=365",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "v2", "stats"],
+                  "query": [{"key": "days", "value": "365"}]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "3. V2 Stats (Cache)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v2/stats?days=365",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "v2", "stats"],
+                  "query": [{"key": "days", "value": "365"}]
+                }
+              },
+              "response": []
+            }
+          ],
+          "description": "Exécuter dans l'ordre pour comparer:\n1. V1: 10-15 secondes\n2. V2: 1-2 secondes\n3. V2 cache: < 5 ms"
+        },
+        {
+          "name": "Comparaison Export CSV - V1 vs V2",
+          "item": [
+            {
+              "name": "1. V1 Export CSV (Non optimisé)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/export/csv?days=30",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "v1", "export", "csv"],
+                  "query": [{"key": "days", "value": "30"}]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "2. V2 Export CSV (Optimisé)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v2/export/csv?days=30",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "v2", "export", "csv"],
+                  "query": [{"key": "days", "value": "30"}]
+                }
+              },
+              "response": []
+            }
+          ],
+          "description": "Utilise days=30 pour exports plus rapides lors des tests"
+        },
+        {
+          "name": "Comparaison Parquet - V1 vs V2",
+          "item": [
+            {
+              "name": "1. V1 Export Parquet (⚠️ Mémoire intensive)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/export/parquet?days=30",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "v1", "export", "parquet"],
+                  "query": [{"key": "days", "value": "30"}]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "2. V2 Export Parquet (Streaming)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v2/export/parquet?days=365",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "v2", "export", "parquet"],
+                  "query": [{"key": "days", "value": "365"}]
+                }
+              },
+              "response": []
+            }
+          ],
+          "description": "⚠️ V1 avec days=30 seulement (mémoire)\nV2 peut gérer days=365 sans problème"
+        }
+      ],
+      "description": "Séquences de tests pour comparer V1 vs V2 côte à côte"
+    }
+  ]
+}

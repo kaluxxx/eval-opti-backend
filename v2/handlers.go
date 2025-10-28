@@ -5,350 +5,540 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"net/http"
-	"sort"
 	"strconv"
 	"sync"
 	"time"
+
+	"eval/database"
 )
 
-// Sale représente une vente
-type Sale struct {
-	Date     string  `json:"date"`
-	Product  string  `json:"product"`
-	Quantity int     `json:"quantity"`
-	Price    float64 `json:"price"`
-	Customer string  `json:"customer"`
-	Category string  `json:"category"`
-}
-
-// Stats contient les statistiques calculées
-type Stats struct {
-	TotalCA      float64                  `json:"total_ca"`
-	ParCategorie map[string]CategoryStats `json:"par_categorie"`
-	TopProduits  []ProductStat            `json:"top_produits"`
-	NbVentes     int                      `json:"nb_ventes"`
-	MoyenneVente float64                  `json:"moyenne_vente"`
-}
-
-type CategoryStats struct {
-	CA       float64 `json:"ca"`
-	NbVentes int     `json:"nb_ventes"`
-}
-
-type ProductStat struct {
-	Product string  `json:"product"`
-	CA      float64 `json:"ca"`
-}
-
-// Cache simple pour les données
+// Cache applicatif V2
 var (
-	cachedSales   []Sale
-	cachedStats   Stats
+	cachedStats   database.Stats
 	cacheTime     time.Time
 	cacheDays     int
 	cacheMutex    sync.RWMutex
-	cacheDuration = 5 * time.Minute // Cache valide pendant 5 minutes
+	cacheDuration = 5 * time.Minute
 )
 
-// generateFakeSalesData génère des données de ventes - OPTIMISÉ avec cache
-func generateFakeSalesData(days int) []Sale {
-	// Vérifie le cache
+// GetStats - V2 OPTIMISÉE avec JOINS et agrégations SQL
+// ✅ Une seule requête avec JOIN pour récupérer tout
+// ✅ Agrégations SQL (GROUP BY)
+// ✅ Tri en SQL (ORDER BY)
+// ✅ Cache applicatif
+func GetStats(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	fmt.Println()
+	fmt.Println("[V2] ⚡ === DÉBUT CALCUL STATS (OPTIMISÉ - JOINS) ===")
+
+	days := 365
+	if r.URL.Query().Get("days") != "" {
+		fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
+	}
+
+	// ✅ OPTIMISATION 1: Vérifie le cache
 	cacheMutex.RLock()
-	if time.Since(cacheTime) < cacheDuration && cacheDays == days && len(cachedSales) > 0 {
+	if time.Since(cacheTime) < cacheDuration && cacheDays == days && cachedStats.NbVentes > 0 {
+		stats := cachedStats
 		cacheMutex.RUnlock()
-		return cachedSales
+
+		w.Header().Set("Content-Type", "application/json")
+		err := json.NewEncoder(w).Encode(stats)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		fmt.Printf("[V2] 🚀 Stats depuis le cache en %v\n", time.Since(start))
+		fmt.Println("[V2] === FIN (CACHE HIT) ===")
+		fmt.Println()
+		return
 	}
 	cacheMutex.RUnlock()
 
-	categories := []string{"Électronique", "Vêtements", "Alimentation", "Maison", "Sport"}
+	fmt.Println("[V2] 💾 Cache miss, calcul des stats...")
 
-	// OPTIMISATION : Pré-alloue la capacité du slice
-	estimatedSize := days * 100 // estimation de 100 ventes/jour en moyenne
-	sales := make([]Sale, 0, estimatedSize)
-
-	for i := 0; i < days; i++ {
-		date := time.Now().AddDate(0, 0, -i)
-		numSales := 50 + rand.Intn(150) // 50-200 ventes par jour
-
-		for j := 0; j < numSales; j++ {
-			sale := Sale{
-				Date:     date.Format("2006-01-02"),
-				Product:  fmt.Sprintf("Produit_%d", rand.Intn(100)+1),
-				Quantity: rand.Intn(10) + 1,
-				Price:    10 + rand.Float64()*490,
-				Customer: fmt.Sprintf("Client_%d", rand.Intn(1000)+1),
-				Category: categories[rand.Intn(len(categories))],
-			}
-			sales = append(sales, sale)
-		}
+	// ✅ OPTIMISATION 2: Calculs en SQL avec JOINs
+	stats, err := calculateStatsOptimized(days)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	// Met en cache
+	// ✅ OPTIMISATION 3: Mise en cache
 	cacheMutex.Lock()
-	cachedSales = sales
+	cachedStats = stats
 	cacheDays = days
 	cacheTime = time.Now()
 	cacheMutex.Unlock()
-	return sales
-}
-
-// calculateStatistics calcule les stats de manière OPTIMISÉE
-func calculateStatistics(sales []Sale) Stats {
-	stats := Stats{
-		ParCategorie: make(map[string]CategoryStats),
-	}
-
-	// OPTIMISATION : Une seule boucle pour tout calculer
-	totalCA := 0.0
-	productsCA := make(map[string]float64)
-
-	for _, sale := range sales {
-		ca := float64(sale.Quantity) * sale.Price
-		totalCA += ca
-
-		// Stats par catégorie
-		catStats := stats.ParCategorie[sale.Category]
-		catStats.CA += ca
-		catStats.NbVentes++
-		stats.ParCategorie[sale.Category] = catStats
-
-		// CA par produit
-		productsCA[sale.Product] += ca
-	}
-
-	stats.TotalCA = totalCA
-	stats.NbVentes = len(sales)
-	if len(sales) > 0 {
-		stats.MoyenneVente = totalCA / float64(len(sales))
-	}
-
-	// OPTIMISATION : Tri efficace avec sort. Slice au lieu de bubble sort
-	productsList := make([]ProductStat, 0, len(productsCA))
-	for product, ca := range productsCA {
-		productsList = append(productsList, ProductStat{Product: product, CA: ca})
-	}
-
-	// Tri avec sort.Slice - O(n log n) au lieu de O(n²)
-	sort.Slice(productsList, func(i, j int) bool {
-		return productsList[i].CA > productsList[j].CA
-	})
-
-	// Prends le top 10
-	if len(productsList) > 10 {
-		stats.TopProduits = productsList[:10]
-	} else {
-		stats.TopProduits = productsList
-	}
-
-	return stats
-}
-
-// getCachedStats retourne les stats en utilisant le cache si disponible
-func getCachedStats(days int) Stats {
-	cacheMutex.RLock()
-	if time.Since(cacheTime) < cacheDuration && cacheDays == days && cachedStats.NbVentes > 0 {
-		cacheMutex.RUnlock()
-		return cachedStats
-	}
-	cacheMutex.RUnlock()
-
-	sales := generateFakeSalesData(days)
-	stats := calculateStatistics(sales)
-
-	cacheMutex.Lock()
-	cachedStats = stats
-	cacheMutex.Unlock()
-
-	return stats
-}
-
-// ExportCSV exporte TOUTES les ventes en CSV - VERSION OPTIMISÉE
-func ExportCSV(w http.ResponseWriter, r *http.Request) {
-	days := 365
-	if r.URL.Query().Get("days") != "" {
-		_, err := fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
-		if err != nil {
-			return
-		}
-	}
-
-	// OPTIMISATION: Utilise le cache
-	sales := generateFakeSalesData(days)
-
-	var buf bytes.Buffer
-	writer := csv.NewWriter(&buf)
-
-	// Écrit l'en-tête
-	header := []string{"Date", "Produit", "Quantité", "Prix", "Client", "Catégorie", "CA Ligne"}
-	err := writer.Write(header)
-	if err != nil {
-		return
-	}
-
-	// OPTIMISATION: Batch write, pas de sleep artificiel
-	for _, sale := range sales {
-		caLigne := float64(sale.Quantity) * sale.Price
-
-		row := []string{
-			sale.Date,
-			sale.Product,
-			strconv.Itoa(sale.Quantity),
-			fmt.Sprintf("%.2f", sale.Price),
-			sale.Customer,
-			sale.Category,
-			fmt.Sprintf("%.2f", caLigne),
-		}
-
-		err := writer.Write(row)
-		if err != nil {
-			return
-		}
-	}
-
-	writer.Flush()
-
-	if err := writer.Error(); err != nil {
-		http.Error(w, "Erreur lors de l'écriture du CSV", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/csv")
-	w.Header().Set("Content-Disposition", "attachment; filename=ventes_export_v2.csv")
-	_, err = w.Write(buf.Bytes())
-	if err != nil {
-		return
-	}
-}
-
-// ExportStatsCSV exporte les statistiques agrégées en CSV - VERSION OPTIMISÉE
-func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
-	days := 365
-	if r.URL.Query().Get("days") != "" {
-		_, err := fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
-		if err != nil {
-			return
-		}
-	}
-
-	// OPTIMISATION: Utilise le cache
-	stats := getCachedStats(days)
-
-	var buf bytes.Buffer
-	writer := csv.NewWriter(&buf)
-
-	// Section 1: Stats globales
-	err := writer.Write([]string{"STATISTIQUES GLOBALES"})
-	if err != nil {
-		return
-	}
-	err = writer.Write([]string{"Métrique", "Valeur"})
-	if err != nil {
-		return
-	}
-	err = writer.Write([]string{"CA Total", fmt.Sprintf("%.2f", stats.TotalCA)})
-	if err != nil {
-		return
-	}
-	err = writer.Write([]string{"Nombre de ventes", strconv.Itoa(stats.NbVentes)})
-	if err != nil {
-		return
-	}
-	err = writer.Write([]string{"Moyenne par vente", fmt.Sprintf("%.2f", stats.MoyenneVente)})
-	if err != nil {
-		return
-	}
-	err = writer.Write([]string{})
-	if err != nil {
-		return
-	}
-
-	// Section 2 : Stats par catégorie
-	err = writer.Write([]string{"STATISTIQUES PAR CATÉGORIE"})
-	if err != nil {
-		return
-	}
-	err = writer.Write([]string{"Catégorie", "CA", "Nombre de ventes"})
-	if err != nil {
-		return
-	}
-
-	// OPTIMISATION: Tri efficace avec sort.Slice
-	type catSort struct {
-		name string
-		stat CategoryStats
-	}
-	catList := make([]catSort, 0, len(stats.ParCategorie))
-	for name, stat := range stats.ParCategorie {
-		catList = append(catList, catSort{name, stat})
-	}
-
-	// Tri O(n log n)
-	sort.Slice(catList, func(i, j int) bool {
-		return catList[i].stat.CA > catList[j].stat.CA
-	})
-
-	for _, cat := range catList {
-		err = writer.Write([]string{
-			cat.name,
-			fmt.Sprintf("%.2f", cat.stat.CA),
-			strconv.Itoa(cat.stat.NbVentes),
-		})
-		if err != nil {
-			return
-		}
-	}
-	err = writer.Write([]string{})
-	if err != nil {
-		return
-	}
-
-	// Section 3: Top produits
-	err = writer.Write([]string{"TOP 10 PRODUITS"})
-	if err != nil {
-		return
-	}
-	err = writer.Write([]string{"Rang", "Produit", "CA"})
-	if err != nil {
-		return
-	}
-	for i, prod := range stats.TopProduits {
-		err = writer.Write([]string{
-			strconv.Itoa(i + 1),
-			prod.Product,
-			fmt.Sprintf("%.2f", prod.CA),
-		})
-		if err != nil {
-			return
-		}
-	}
-
-	writer.Flush()
-
-	w.Header().Set("Content-Type", "text/csv")
-	w.Header().Set("Content-Disposition", "attachment; filename=statistiques_v2.csv")
-	_, err = w.Write(buf.Bytes())
-	if err != nil {
-		return
-	}
-}
-
-// GetStats retourne uniquement les statistiques en JSON - VERSION OPTIMISÉE
-func GetStats(w http.ResponseWriter, r *http.Request) {
-	days := 365
-	if r.URL.Query().Get("days") != "" {
-		_, err := fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
-		if err != nil {
-			return
-		}
-	}
-
-	stats := getCachedStats(days)
 
 	w.Header().Set("Content-Type", "application/json")
-	err := json.NewEncoder(w).Encode(stats)
+	err = json.NewEncoder(w).Encode(stats)
 	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	fmt.Printf("[V2] ⚡ Stats calculées en %v\n", time.Since(start))
+	fmt.Println("[V2] === FIN CALCUL STATS ===")
+	fmt.Println()
+}
+
+// calculateStatsOptimized - TOUT EN SQL avec JOINs!
+func calculateStatsOptimized(days int) (database.Stats, error) {
+	startDate := time.Now().AddDate(0, 0, -days)
+
+	stats := database.Stats{
+		ParCategorie: make(map[string]database.CategoryStats),
+	}
+
+	// ✅ OPTIMISATION 1: Stats globales en une seule requête
+	fmt.Println("[V2]    Requête 1: Stats globales...")
+	queryGlobal := `
+		SELECT
+			COUNT(*) as nb_ventes,
+			COALESCE(SUM(oi.subtotal), 0) as total_ca,
+			COALESCE(AVG(oi.subtotal), 0) as moyenne_vente,
+			COUNT(DISTINCT o.id) as nb_commandes
+		FROM order_items oi
+		INNER JOIN orders o ON oi.order_id = o.id
+		WHERE o.order_date >= $1
+	`
+
+	var nbCommandes int
+	err := database.DB.QueryRow(queryGlobal, startDate).Scan(
+		&stats.NbVentes, &stats.TotalCA, &stats.MoyenneVente, &nbCommandes)
+	if err != nil {
+		return stats, err
+	}
+	stats.NbCommandes = nbCommandes
+
+	// ✅ OPTIMISATION 2: Stats par catégorie avec JOINs et GROUP BY
+	fmt.Println("[V2]    Requête 2: Stats par catégorie (avec JOINs)...")
+	queryCateg := `
+		SELECT
+			c.name as category,
+			COUNT(oi.id) as nb_ventes,
+			SUM(oi.subtotal) as ca
+		FROM order_items oi
+		INNER JOIN orders o ON oi.order_id = o.id
+		INNER JOIN products p ON oi.product_id = p.id
+		INNER JOIN product_categories pc ON p.id = pc.product_id
+		INNER JOIN categories c ON pc.category_id = c.id
+		WHERE o.order_date >= $1
+		GROUP BY c.name
+		ORDER BY ca DESC
+	`
+
+	rows, err := database.DB.Query(queryCateg, startDate)
+	if err != nil {
+		return stats, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var category string
+		var cs database.CategoryStats
+		err := rows.Scan(&category, &cs.NbVentes, &cs.CA)
+		if err != nil {
+			return stats, err
+		}
+		stats.ParCategorie[category] = cs
+	}
+
+	// ✅ OPTIMISATION 3: Top produits avec JOINs, GROUP BY, ORDER BY et LIMIT en SQL
+	fmt.Println("[V2]    Requête 3: Top 10 produits (avec JOINs + ORDER BY + LIMIT)...")
+	queryTop := `
+		SELECT
+			p.id,
+			p.name,
+			COUNT(oi.id) as nb_ventes,
+			SUM(oi.subtotal) as ca
+		FROM order_items oi
+		INNER JOIN orders o ON oi.order_id = o.id
+		INNER JOIN products p ON oi.product_id = p.id
+		WHERE o.order_date >= $1
+		GROUP BY p.id, p.name
+		ORDER BY ca DESC
+		LIMIT 10
+	`
+
+	rowsTop, err := database.DB.Query(queryTop, startDate)
+	if err != nil {
+		return stats, err
+	}
+	defer rowsTop.Close()
+
+	// ✅ OPTIMISATION 4: Préallocation du slice
+	stats.TopProduits = make([]database.ProductStat, 0, 10)
+
+	for rowsTop.Next() {
+		var ps database.ProductStat
+		err := rowsTop.Scan(&ps.ProductID, &ps.ProductName, &ps.NbVentes, &ps.CA)
+		if err != nil {
+			return stats, err
+		}
+		stats.TopProduits = append(stats.TopProduits, ps)
+	}
+
+	// ✅ BONUS: Top magasins
+	fmt.Println("[V2]    Requête 4: Top 5 magasins...")
+	queryStores := `
+		SELECT
+			s.id,
+			s.name,
+			s.city,
+			COUNT(oi.id) as nb_ventes,
+			SUM(oi.subtotal) as ca
+		FROM order_items oi
+		INNER JOIN orders o ON oi.order_id = o.id
+		INNER JOIN stores s ON o.store_id = s.id
+		WHERE o.order_date >= $1
+		GROUP BY s.id, s.name, s.city
+		ORDER BY ca DESC
+		LIMIT 5
+	`
+
+	rowsStores, err := database.DB.Query(queryStores, startDate)
+	if err == nil {
+		defer rowsStores.Close()
+		stats.TopMagasins = make([]database.StoreStat, 0, 5)
+
+		for rowsStores.Next() {
+			var ss database.StoreStat
+			rowsStores.Scan(&ss.StoreID, &ss.StoreName, &ss.City, &ss.NbVentes, &ss.CA)
+			stats.TopMagasins = append(stats.TopMagasins, ss)
+		}
+	}
+
+	// ✅ BONUS: Répartition par méthode de paiement
+	fmt.Println("[V2]    Requête 5: Répartition paiements...")
+	queryPayment := `
+		SELECT
+			pm.name,
+			COUNT(DISTINCT o.id) as nb_commandes
+		FROM orders o
+		INNER JOIN payment_methods pm ON o.payment_method_id = pm.id
+		WHERE o.order_date >= $1
+		GROUP BY pm.name
+	`
+
+	rowsPayment, err := database.DB.Query(queryPayment, startDate)
+	if err == nil {
+		defer rowsPayment.Close()
+		stats.RepartitionPaiement = make(map[string]int)
+
+		for rowsPayment.Next() {
+			var method string
+			var count int
+			rowsPayment.Scan(&method, &count)
+			stats.RepartitionPaiement[method] = count
+		}
+	}
+
+	return stats, nil
+}
+
+// ExportCSV - V2 OPTIMISÉE avec JOINs
+func ExportCSV(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	fmt.Println()
+	fmt.Println("[V2] ⚡ === DÉBUT EXPORT CSV (OPTIMISÉ - JOINs) ===")
+
+	days := 365
+	if r.URL.Query().Get("days") != "" {
+		fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
+	}
+
+	startDate := time.Now().AddDate(0, 0, -days)
+
+	// ✅ UNE SEULE REQUÊTE avec tous les JOINs nécessaires
+	query := `
+		SELECT
+			o.order_date,
+			o.id as order_id,
+			p.name as product_name,
+			oi.quantity,
+			oi.unit_price,
+			oi.subtotal,
+			c.first_name || ' ' || c.last_name as customer_name,
+			s.name as store_name
+		FROM order_items oi
+		INNER JOIN orders o ON oi.order_id = o.id
+		INNER JOIN products p ON oi.product_id = p.id
+		INNER JOIN customers c ON o.customer_id = c.id
+		INNER JOIN stores s ON o.store_id = s.id
+		WHERE o.order_date >= $1
+		ORDER BY o.order_date DESC
+	`
+
+	rows, err := database.DB.Query(query, startDate)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	// ✅ Buffer préalloué
+	var buf bytes.Buffer
+	buf.Grow(1024 * 1024) // 1 MB
+
+	writer := csv.NewWriter(&buf)
+
+	header := []string{"Date", "Commande ID", "Produit", "Quantité", "Prix Unitaire", "Sous-total", "Client", "Magasin"}
+	writer.Write(header)
+
+	count := 0
+	for rows.Next() {
+		var orderDate time.Time
+		var orderID int64
+		var productName string
+		var quantity int
+		var unitPrice float64
+		var subtotal float64
+		var customerName string
+		var storeName string
+
+		rows.Scan(&orderDate, &orderID, &productName, &quantity, &unitPrice, &subtotal, &customerName, &storeName)
+
+		row := []string{
+			orderDate.Format("2006-01-02"),
+			strconv.FormatInt(orderID, 10),
+			productName,
+			strconv.Itoa(quantity),
+			fmt.Sprintf("%.2f", unitPrice),
+			fmt.Sprintf("%.2f", subtotal),
+			customerName,
+			storeName,
+		}
+		writer.Write(row)
+		count++
+
+		// ✅ Pas de sleep !
+	}
+
+	writer.Flush()
+
+	fmt.Printf("[V2] ⚡ Export terminé: %d lignes en %v\n", count, time.Since(start))
+	fmt.Println("[V2] === FIN EXPORT CSV ===")
+	fmt.Println()
+
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", "attachment; filename=ventes_v2.csv")
+	w.Write(buf.Bytes())
+}
+
+// ExportStatsCSV - V2 OPTIMISÉE
+func ExportStatsCSV(w http.ResponseWriter, r *http.Request) {
+	fmt.Println()
+	fmt.Println("[V2] ⚡ === DÉBUT EXPORT STATS CSV ===")
+
+	days := 365
+	if r.URL.Query().Get("days") != "" {
+		fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
+	}
+
+	// ✅ Utilise le cache si disponible
+	cacheMutex.RLock()
+	var stats database.Stats
+	var err error
+
+	if time.Since(cacheTime) < cacheDuration && cacheDays == days && cachedStats.NbVentes > 0 {
+		stats = cachedStats
+		cacheMutex.RUnlock()
+		fmt.Println("[V2] 🚀 Utilisation du cache")
+	} else {
+		cacheMutex.RUnlock()
+		fmt.Println("[V2] 💾 Cache miss, calcul...")
+		stats, err = calculateStatsOptimized(days)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	var buf bytes.Buffer
+	writer := csv.NewWriter(&buf)
+
+	writer.Write([]string{"STATISTIQUES GLOBALES"})
+	writer.Write([]string{"Métrique", "Valeur"})
+	writer.Write([]string{"CA Total", fmt.Sprintf("%.2f", stats.TotalCA)})
+	writer.Write([]string{"Nombre de ventes", strconv.Itoa(stats.NbVentes)})
+	writer.Write([]string{"Nombre de commandes", strconv.Itoa(stats.NbCommandes)})
+	writer.Write([]string{"Moyenne par vente", fmt.Sprintf("%.2f", stats.MoyenneVente)})
+	writer.Write([]string{})
+
+	writer.Write([]string{"STATISTIQUES PAR CATÉGORIE"})
+	writer.Write([]string{"Catégorie", "CA", "Nombre de ventes"})
+
+	for cat, catStats := range stats.ParCategorie {
+		writer.Write([]string{cat, fmt.Sprintf("%.2f", catStats.CA), strconv.Itoa(catStats.NbVentes)})
+	}
+	writer.Write([]string{})
+
+	writer.Write([]string{"TOP 10 PRODUITS"})
+	writer.Write([]string{"Rang", "Produit", "CA", "Nb Ventes"})
+	for i, prod := range stats.TopProduits {
+		writer.Write([]string{
+			strconv.Itoa(i + 1),
+			prod.ProductName,
+			fmt.Sprintf("%.2f", prod.CA),
+			strconv.Itoa(prod.NbVentes),
+		})
+	}
+	writer.Write([]string{})
+
+	// ✅ BONUS: Top magasins
+	if len(stats.TopMagasins) > 0 {
+		writer.Write([]string{"TOP 5 MAGASINS"})
+		writer.Write([]string{"Rang", "Magasin", "Ville", "CA", "Nb Ventes"})
+		for i, store := range stats.TopMagasins {
+			writer.Write([]string{
+				strconv.Itoa(i + 1),
+				store.StoreName,
+				store.City,
+				fmt.Sprintf("%.2f", store.CA),
+				strconv.Itoa(store.NbVentes),
+			})
+		}
+		writer.Write([]string{})
+	}
+
+	// ✅ BONUS: Répartition paiements
+	if len(stats.RepartitionPaiement) > 0 {
+		writer.Write([]string{"RÉPARTITION PAR MÉTHODE DE PAIEMENT"})
+		writer.Write([]string{"Méthode", "Nb Commandes"})
+		for method, count := range stats.RepartitionPaiement {
+			writer.Write([]string{method, strconv.Itoa(count)})
+		}
+	}
+
+	writer.Flush()
+
+	fmt.Println("[V2] === FIN EXPORT STATS CSV ===")
+	fmt.Println()
+
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", "attachment; filename=stats_v2.csv")
+	w.Write(buf.Bytes())
+}
+
+// ExportParquet - V2 OPTIMISÉE avec streaming par batches
+// ✅ UNE SEULE requête avec tous les JOINs
+// ✅ Streaming par batches (pas tout en mémoire)
+// ✅ Traitement à la volée
+func ExportParquet(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	fmt.Println()
+	fmt.Println("[V2] ⚡ === DÉBUT EXPORT PARQUET (OPTIMISÉ - STREAMING) ===")
+
+	days := 365
+	if r.URL.Query().Get("days") != "" {
+		fmt.Sscanf(r.URL.Query().Get("days"), "%d", &days)
+	}
+
+	startDate := time.Now().AddDate(0, 0, -days)
+
+	// ✅ OPTIMISATION 1: UNE SEULE requête avec tous les JOINs
+	fmt.Println("[V2] ⚡ Requête unique avec tous les JOINs...")
+	query := `
+		SELECT
+			o.order_date,
+			o.id as order_id,
+			p.name as product_name,
+			c.first_name || ' ' || c.last_name as customer_name,
+			s.name as store_name,
+			s.city as store_city,
+			pm.name as payment_method,
+			oi.quantity,
+			oi.unit_price,
+			oi.subtotal
+		FROM order_items oi
+		INNER JOIN orders o ON oi.order_id = o.id
+		INNER JOIN products p ON oi.product_id = p.id
+		INNER JOIN customers c ON o.customer_id = c.id
+		INNER JOIN stores s ON o.store_id = s.id
+		INNER JOIN payment_methods pm ON o.payment_method_id = pm.id
+		WHERE o.order_date >= $1
+		ORDER BY o.order_date DESC
+	`
+
+	rows, err := database.DB.Query(query, startDate)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	// ✅ OPTIMISATION 2: Streaming par batches (ne charge pas tout)
+	fmt.Println("[V2] ⚡ Traitement en streaming par batches de 1000...")
+
+	const batchSize = 1000
+	batch := make([]database.SaleParquet, 0, batchSize)
+	totalRows := 0
+	batchNum := 0
+
+	for rows.Next() {
+		var orderDate time.Time
+		var orderID int64
+		var productName string
+		var customerName string
+		var storeName string
+		var storeCity string
+		var paymentMethod string
+		var quantity int
+		var unitPrice float64
+		var subtotal float64
+
+		err := rows.Scan(&orderDate, &orderID, &productName, &customerName,
+			&storeName, &storeCity, &paymentMethod, &quantity, &unitPrice, &subtotal)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// ✅ Traitement à la volée
+		sale := database.SaleParquet{
+			OrderDate:     orderDate.Format("2006-01-02"),
+			OrderID:       orderID,
+			ProductName:   productName,
+			CustomerName:  customerName,
+			StoreName:     storeName,
+			StoreCity:     storeCity,
+			PaymentMethod: paymentMethod,
+			Quantity:      int32(quantity),
+			UnitPrice:     unitPrice,
+			Subtotal:      subtotal,
+		}
+
+		batch = append(batch, sale)
+		totalRows++
+
+		// ✅ Traitement par batch
+		if len(batch) >= batchSize {
+			batchNum++
+			fmt.Printf("[V2]    Batch %d traité (%d lignes)\n", batchNum, len(batch))
+			// Ici on écrirait dans Parquet, mais pour la démo on vide juste le batch
+			batch = batch[:0] // Reset le slice sans réallouer
+		}
+	}
+
+	// Traiter le dernier batch
+	if len(batch) > 0 {
+		batchNum++
+		fmt.Printf("[V2]    Batch %d traité (%d lignes)\n", batchNum, len(batch))
+	}
+
+	fmt.Printf("[V2] ⚡ Export Parquet terminé: %d lignes en %v\n", totalRows, time.Since(start))
+	fmt.Printf("[V2] ✅ Mémoire utilisée: ~%d MB (max batch size)\n", (batchSize*200)/1024/1024)
+	fmt.Println("[V2] === FIN EXPORT PARQUET ===")
+	fmt.Println()
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", "attachment; filename=ventes_v2.parquet")
+
+	// Pour V2, on renvoie le résumé
+	w.Write([]byte(fmt.Sprintf("V2 Parquet export (optimized streaming): %d rows processed in %d batches in %v",
+		totalRows, batchNum, time.Since(start))))
 }

@@ -1,4 +1,4 @@
 | Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
-| `curl -s http://localhost:8080/api/v1/export/csv?days=30 -o nul` | 2.072 ± 0.005 | 2.068 | 2.082 | 51.48 ± 2.11 |
-| `curl -s http://localhost:8080/api/v2/export/csv?days=30 -o nul` | 0.040 ± 0.002 | 0.038 | 0.042 | 1.00 |
+| `V1 CSV (N+1)` | 5.176 ± 0.076 | 5.057 | 5.263 | 110.82 ± 2.93 |
+| `V2 CSV (JOINs)` | 0.047 ± 0.001 | 0.046 | 0.048 | 1.00 |

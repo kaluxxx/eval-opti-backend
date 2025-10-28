@@ -99,12 +99,15 @@ go test -bench=. -benchmem -cpuprofile=cpu.prof -memprofile=mem.prof
 
 ### Benchmarks disponibles
 
-| Benchmark | Description |
-|-----------|-------------|
-| `BenchmarkGenerateFakeSalesData_*` | Génération de données (30/365/730 jours) |
-| `BenchmarkCalculateStatistics_*` | Calcul de stats (petit/moyen/grand dataset) |
-| `BenchmarkBubbleSort_TopProducts` | Tri bubble sort (bottleneck principal) |
-| `BenchmarkMemoryAllocations_*` | Allocations mémoire |
+**Avec PostgreSQL et données réelles (110k commandes, 330k lignes)** :
+
+| Benchmark | Description | V1 vs V2 |
+|-----------|-------------|----------|
+| **Stats 365 jours** | Calcul statistiques 1 an | N+1 (200+ queries) vs JOINs (5 queries) |
+| **Stats 100 jours** | Calcul statistiques 100j | Bubble sort vs SQL ORDER BY |
+| **Export CSV 30 jours** | Export ~27k lignes | N+1 per row vs Single JOIN |
+| **Export Parquet 7 jours** | Export format columnar | Full memory vs Streaming |
+| **Cache Effect** | Impact du cache V2 | N/A vs 5min TTL cache |
 
 ### Interpréter les résultats
 

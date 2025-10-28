@@ -1,4 +1,4 @@
-| Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
+| Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
-| `curl -s http://localhost:8080/api/v1/stats?days=365 -o nul` | 49.1 ± 3.2 | 43.2 | 52.3 | 2.19 ± 0.17 |
-| `curl -s http://localhost:8080/api/v2/stats?days=365 -o nul` | 22.4 ± 0.9 | 21.2 | 23.9 | 1.00 |
+| `V1 (N+1 + Bubble Sort)` | 7.062 ± 0.028 | 7.023 | 7.126 | 362.83 ± 25.58 |
+| `V2 (JOINs + SQL ORDER BY)` | 0.019 ± 0.001 | 0.017 | 0.022 | 1.00 |

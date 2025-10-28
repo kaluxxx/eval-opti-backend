@@ -1,4 +1,4 @@
-| Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
+| Command | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
-| `curl -s http://localhost:8080/api/v1/stats?days=100 -o nul` | 31.4 ± 2.6 | 26.9 | 35.2 | 1.35 ± 0.12 |
-| `curl -s http://localhost:8080/api/v2/stats?days=100 -o nul` | 23.3 ± 0.7 | 22.2 | 24.5 | 1.00 |
+| `V1 (Non optimisÃ©)` | 2.298 ± 0.015 | 2.281 | 2.327 | 132.60 ± 8.02 |
+| `V2 (OptimisÃ©)` | 0.017 ± 0.001 | 0.017 | 0.020 | 1.00 |
