@@ -12,13 +12,15 @@ import (
 )
 
 // StatsServiceV2 service optimisé pour le calcul des statistiques (Version 2)
+// PERFORMANCE: Structure allouée sur le HEAP si retournée par une fonction ou passée par pointeur
 type StatsServiceV2 struct {
-	statsRepo *infrastructure.StatsQueryRepository
-	cache     sharedinfra.Cache
+	statsRepo *infrastructure.StatsQueryRepository // Pointeur : heap
+	cache     sharedinfra.Cache                    // “Stocké inline” = “stocké directement dans la stack”
 	cacheTTL  time.Duration
 }
 
 // NewStatsServiceV2 crée une nouvelle instance de StatsServiceV2
+// Pattern "constructor" - retourne un pointeur pour éviter la copie de la struct
 func NewStatsServiceV2(
 	statsRepo *infrastructure.StatsQueryRepository,
 	cache sharedinfra.Cache,
@@ -31,8 +33,10 @@ func NewStatsServiceV2(
 }
 
 // GetStats calcule les statistiques de manière optimisée avec cache et goroutines
+// Pattern "cache-aside" pour éviter les calculs coûteux
 func (s *StatsServiceV2) GetStats(days int) (*domain.Stats, error) {
-	// Vérifier le cache
+	// CACHE: Vérifier le cache en premier (hot path optimization)
+	// MÉMOIRE: buildCacheKey alloue une string sur le HEAP
 	cacheKey := s.buildCacheKey(days)
 	if cached, found := s.cache.Get(cacheKey); found {
 		return cached.(*domain.Stats), nil
@@ -57,6 +61,9 @@ func (s *StatsServiceV2) GetStats(days int) (*domain.Stats, error) {
 }
 
 // calculateStatsOptimized calcule les stats avec des requêtes SQL parallèles
+// CONCURRENCE: Utilise des goroutines pour paralléliser 5 requêtes SQL indépendantes
+// PERFORMANCE: Temps total ≈ max(temps requête) au lieu de Σ(temps requêtes)
+// ATTENTION: Trade-off mémoire/vitesse - 5 goroutines actives simultanément (sur la stack)
 func (s *StatsServiceV2) calculateStatsOptimized(dateRange shareddomain.DateRange) (*domain.Stats, error) {
 	stats := domain.NewStats()
 
@@ -140,7 +147,15 @@ func (s *StatsServiceV2) calculateStatsOptimized(dateRange shareddomain.DateRang
 }
 
 // buildCacheKey construit la clé de cache
+// PERFORMANCE: Utilise un builder pour éviter les concatenations multiples de strings
+// MÉMOIRE : Les strings en Go sont immuables, chaque concat créerait une nouvelle string
+// ALLOCATION: Le builder utilise un buffer interne (probablement bytes.Buffer ou strings.Builder)
 func (s *StatsServiceV2) buildCacheKey(days int) string {
+	// BUILDER PATTERN: Efficace pour construire des strings avec plusieurs parties
+	// MÉMOIRE: NewCacheKeyBuilder() alloue probablement une struct avec un buffer sur le HEAP
+	// PERFORMANCE: Évite N-1 allocations intermédiaires (où N = nombre de Add)
+	// Sans builder: "stats" + "v2" + strconv.Itoa(days) = 2 allocations intermédiaires
+	// Avec builder: 1 seule allocation finale
 	return sharedinfra.NewCacheKeyBuilder().
 		Add("stats").
 		Add("v2").

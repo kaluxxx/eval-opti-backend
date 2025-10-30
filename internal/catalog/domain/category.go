@@ -34,23 +34,3 @@ func NewCategory(
 		createdAt:   createdAt,
 	}, nil
 }
-
-// ID retourne l'identifiant de la catégorie
-func (c *Category) ID() CategoryID {
-	return c.id
-}
-
-// Name retourne le nom de la catégorie
-func (c *Category) Name() string {
-	return c.name
-}
-
-// Description retourne la description
-func (c *Category) Description() string {
-	return c.description
-}
-
-// CreatedAt retourne la date de création
-func (c *Category) CreatedAt() time.Time {
-	return c.createdAt
-}

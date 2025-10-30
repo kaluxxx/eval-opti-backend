@@ -1,7 +1,6 @@
 package infrastructure
 
 import (
-	"context"
 	"database/sql"
 	"time"
 
@@ -22,13 +21,6 @@ func NewProductQueryRepository(db *sql.DB) *ProductQueryRepository {
 	}
 }
 
-// WithContext ajoute un contexte
-func (r *ProductQueryRepository) WithContext(ctx context.Context) *ProductQueryRepository {
-	newRepo := *r
-	// Note: BaseRepository devra être étendu pour supporter WithContext proprement
-	return &newRepo
-}
-
 // FindByID trouve un produit par son ID
 func (r *ProductQueryRepository) FindByID(id domain.ProductID) (*domain.Product, error) {
 	query := `
@@ -36,14 +28,18 @@ func (r *ProductQueryRepository) FindByID(id domain.ProductID) (*domain.Product,
 		FROM products p
 		WHERE p.id = $1
 	`
-
+	/*
+		var ici déclare plusieurs variables locales.
+		Stack : allocation ultra rapide (pointeur de pile déplacé).
+		Pas de GC : ces variables sont détruites automatiquement à la fin de la fonction.
+	*/
 	var (
-		pid          int64
-		name         string
-		supplierID   int64
-		basePrice    float64
-		stockQty     int
-		createdAt    time.Time
+		pid        int64
+		name       string
+		supplierID int64
+		basePrice  float64
+		stockQty   int
+		createdAt  time.Time
 	)
 
 	err := r.QueryRow(query, int64(id)).Scan(&pid, &name, &supplierID, &basePrice, &stockQty, &createdAt)
@@ -71,62 +67,6 @@ func (r *ProductQueryRepository) FindByID(id domain.ProductID) (*domain.Product,
 	)
 }
 
-// FindAll récupère tous les produits
-func (r *ProductQueryRepository) FindAll() ([]*domain.Product, error) {
-	query := `
-		SELECT p.id, p.name, p.supplier_id, p.base_price, p.stock_quantity, p.created_at
-		FROM products p
-		ORDER BY p.id
-	`
-
-	rows, err := r.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var products []*domain.Product
-	for rows.Next() {
-		var (
-			pid          int64
-			name         string
-			supplierID   int64
-			basePrice    float64
-			stockQty     int
-			createdAt    time.Time
-		)
-
-		if err := rows.Scan(&pid, &name, &supplierID, &basePrice, &stockQty, &createdAt); err != nil {
-			return nil, err
-		}
-
-		categories, err := r.findCategoriesForProduct(domain.ProductID(pid))
-		if err != nil {
-			return nil, err
-		}
-
-		money, _ := shareddomain.NewMoney(basePrice, "EUR")
-		quantity, _ := shareddomain.NewQuantity(stockQty)
-
-		product, err := domain.NewProduct(
-			domain.ProductID(pid),
-			name,
-			domain.SupplierID(supplierID),
-			money,
-			quantity,
-			categories,
-			createdAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		products = append(products, product)
-	}
-
-	return products, nil
-}
-
 // findCategoriesForProduct récupère les catégories d'un produit
 func (r *ProductQueryRepository) findCategoriesForProduct(productID domain.ProductID) ([]domain.CategoryID, error) {
 	query := `
@@ -151,70 +91,4 @@ func (r *ProductQueryRepository) findCategoriesForProduct(productID domain.Produ
 	}
 
 	return categories, nil
-}
-
-// FindByIDs récupère plusieurs produits par leurs IDs
-func (r *ProductQueryRepository) FindByIDs(ids []domain.ProductID) (map[domain.ProductID]*domain.Product, error) {
-	if len(ids) == 0 {
-		return make(map[domain.ProductID]*domain.Product), nil
-	}
-
-	// Convertir les IDs pour la requête
-	intIDs := make([]interface{}, len(ids))
-	for i, id := range ids {
-		intIDs[i] = int64(id)
-	}
-
-	query := `
-		SELECT p.id, p.name, p.supplier_id, p.base_price, p.stock_quantity, p.created_at
-		FROM products p
-		WHERE p.id = ANY($1)
-	`
-
-	rows, err := r.Query(query, intIDs)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	products := make(map[domain.ProductID]*domain.Product)
-	for rows.Next() {
-		var (
-			pid          int64
-			name         string
-			supplierID   int64
-			basePrice    float64
-			stockQty     int
-			createdAt    time.Time
-		)
-
-		if err := rows.Scan(&pid, &name, &supplierID, &basePrice, &stockQty, &createdAt); err != nil {
-			return nil, err
-		}
-
-		categories, err := r.findCategoriesForProduct(domain.ProductID(pid))
-		if err != nil {
-			return nil, err
-		}
-
-		money, _ := shareddomain.NewMoney(basePrice, "EUR")
-		quantity, _ := shareddomain.NewQuantity(stockQty)
-
-		product, err := domain.NewProduct(
-			domain.ProductID(pid),
-			name,
-			domain.SupplierID(supplierID),
-			money,
-			quantity,
-			categories,
-			createdAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		products[domain.ProductID(pid)] = product
-	}
-
-	return products, nil
 }

@@ -69,6 +69,7 @@ func (r *StatsQueryRepository) GetCategoryStats(dateRange shareddomain.DateRange
 
 	var stats []*domain.CategoryStats
 	for rows.Next() {
+		// Ces variables locales servent de tampons temporaires pour Scan.
 		var (
 			catID        int64
 			catName      string
