@@ -22,7 +22,21 @@ func NewExportQueryRepository(db *sql.DB) *ExportQueryRepository {
 }
 
 // GetSalesDataOptimized récupère les données de vente de manière optimisée (une seule requête)
+// PERFORMANCE: ✓ OPTIMISÉ - UNE SEULE requête avec tous les JOINs
+//   - Vs V1 qui fait 1 query initiale + 6 queries par order_item (N+1 × 6!)
+//   - Ex: 10k order_items → V1 = 60,001 queries vs V2 = 1 query
+//   - Temps: V1 ≈ 60s (1ms/query) vs V2 ≈ 100ms
 func (r *ExportQueryRepository) GetSalesDataOptimized(dateRange shareddomain.DateRange) ([]*domain.SaleExportRow, error) {
+	// SYNTAXE SQL optimisée avec JOINS:
+	//   - INNER JOIN = seulement les lignes avec correspondance (orders, order_items, etc.)
+	//   - LEFT JOIN = garde la ligne même si pas de correspondance (promotions optionnelles)
+	//   - COALESCE(value, 'default') = retourne 'default' si value est NULL
+	// PERFORMANCE: PostgreSQL fait tous les JOINs en UNE PASSE
+	//   - Query planner optimise l'ordre des joins
+	//   - Utilise les index pour accélérer les joins
+	//   - Dénormalise les données côté DB (plus efficace qu'en Go)
+	// MÉMOIRE: Transfère toutes les colonnes nécessaires d'un coup
+	//   - Évite les round-trips réseau (latence majeure en DB)
 	query := `
 		SELECT
 			o.id as order_id,
@@ -57,6 +71,7 @@ func (r *ExportQueryRepository) GetSalesDataOptimized(dateRange shareddomain.Dat
 	defer rows.Close()
 
 	var salesData []*domain.SaleExportRow
+	//
 	for rows.Next() {
 		var (
 			orderID       int64
@@ -96,8 +111,20 @@ func (r *ExportQueryRepository) GetSalesDataOptimized(dateRange shareddomain.Dat
 }
 
 // GetSalesDataInefficient récupère les données avec N+1 queries (version inefficace)
+// PERFORMANCE: ⚠️ CATASTROPHIQUE - N+1 QUERIES PROBLEM × 6!
+//   - 1 query pour order_items
+//   - Puis POUR CHAQUE order_item (loop):
+//   - 1 query pour order
+//   - 1 query pour store
+//   - 1 query pour product
+//   - 1 query pour category
+//   - 1 query pour payment_method
+//   - 1 query pour promotion
+//   - Total: 1 + (N × 6) queries où N = nombre d'order_items
+//   - Ex: 10,000 items = 60,001 queries! Temps: ~60 secondes minimum
 func (r *ExportQueryRepository) GetSalesDataInefficient(dateRange shareddomain.DateRange) ([]*domain.SaleExportRow, error) {
-	// D'abord récupérer tous les order items
+	// Première query: récupère tous les order items
+	// PERFORMANCE: Cette query est ok, mais c'est ce qui suit qui est terrible
 	query1 := `
 		SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.unit_price, oi.subtotal
 		FROM order_items oi
@@ -112,13 +139,14 @@ func (r *ExportQueryRepository) GetSalesDataInefficient(dateRange shareddomain.D
 	}
 	defer rows.Close()
 
+	// MÉMOIRE: Struct temporaire pour stocker les données partielles
 	type itemData struct {
-		itemID     int64
-		orderID    int64
-		productID  int64
-		quantity   int
-		unitPrice  float64
-		subtotal   float64
+		itemID    int64
+		orderID   int64
+		productID int64
+		quantity  int
+		unitPrice float64
+		subtotal  float64
 	}
 
 	var items []itemData
@@ -130,10 +158,17 @@ func (r *ExportQueryRepository) GetSalesDataInefficient(dateRange shareddomain.D
 		items = append(items, item)
 	}
 
-	// Maintenant, pour chaque item, faire des requêtes séparées (N+1!)
+	// ⚠️ LE DÉSASTRE COMMENCE ICI: Boucle avec 6 queries par itération!
+	// PERFORMANCE: Chaque QueryRow = round-trip réseau complet
+	//   - Latence réseau: ~1ms par query (optimiste)
+	//   - Si 10k items: 10k × 6 × 1ms = 60 secondes MINIMUM
+	//   - Plus le temps d'exécution SQL + parsing + query planning
 	var salesData []*domain.SaleExportRow
 	for _, item := range items {
-		// Query pour l'order
+		// ⚠️ QUERY 1: Order details
+		// SYNTAXE: sql.NullInt64 = type Go pour gérer les NULL SQL
+		//   - .Valid = true si pas NULL
+		//   - .Int64 = valeur si Valid
 		var customerID, storeID, paymentMethodID int64
 		var promotionID sql.NullInt64
 		var orderDate time.Time
@@ -143,17 +178,17 @@ func (r *ExportQueryRepository) GetSalesDataInefficient(dateRange shareddomain.D
 			continue
 		}
 
-		// Query pour le store
+		// ⚠️ QUERY 2: Store name
 		var storeName string
 		storeQuery := `SELECT name FROM stores WHERE id = $1`
 		_ = r.QueryRow(storeQuery, storeID).Scan(&storeName)
 
-		// Query pour le product
+		// ⚠️ QUERY 3: Product name
 		var productName string
 		productQuery := `SELECT name FROM products WHERE id = $1`
 		_ = r.QueryRow(productQuery, item.productID).Scan(&productName)
 
-		// Query pour la catégorie (première trouvée)
+		// ⚠️ QUERY 4: Category (with JOIN!)
 		var categoryName string
 		categoryQuery := `
 			SELECT c.name FROM categories c
@@ -162,12 +197,12 @@ func (r *ExportQueryRepository) GetSalesDataInefficient(dateRange shareddomain.D
 		`
 		_ = r.QueryRow(categoryQuery, item.productID).Scan(&categoryName)
 
-		// Query pour payment method
+		// ⚠️ QUERY 5: Payment method
 		var paymentMethod string
 		pmQuery := `SELECT name FROM payment_methods WHERE id = $1`
 		_ = r.QueryRow(pmQuery, paymentMethodID).Scan(&paymentMethod)
 
-		// Query pour promotion
+		// ⚠️ QUERY 6: Promotion (conditional)
 		promotionCode := ""
 		if promotionID.Valid {
 			prQuery := `SELECT code FROM promotions WHERE id = $1`

@@ -3,8 +3,8 @@ package infrastructure
 import (
 	"database/sql"
 
-	catalogdomain "eval/internal/catalog/domain"
 	"eval/internal/analytics/domain"
+	catalogdomain "eval/internal/catalog/domain"
 	ordersdomain "eval/internal/orders/domain"
 	shareddomain "eval/internal/shared/domain"
 	"eval/internal/shared/infrastructure"
@@ -94,7 +94,18 @@ func (r *StatsQueryRepository) GetCategoryStats(dateRange shareddomain.DateRange
 }
 
 // GetTopProducts récupère les N meilleurs produits (optimisé)
+// PERFORMANCE: ✓ Version optimisée avec GROUP BY en SQL
+//   - Agrégation faite par PostgreSQL (moteur C optimisé)
+//   - Seulement les résultats agrégés sont transférés sur le réseau
+//   - Si 100k order_items → 1000 products: on transfère 1000 rows au lieu de 100k!
 func (r *StatsQueryRepository) GetTopProducts(dateRange shareddomain.DateRange, limit int) ([]*domain.ProductStats, error) {
+	// SYNTAXE SQL optimisée:
+	//   - COALESCE(value, 0) = retourne 0 si value est NULL (évite NULL en Go)
+	//   - SUM() et COUNT() = agrégations faites par le moteur DB (très rapide)
+	//   - COUNT(DISTINCT) = déduplique les order IDs (pas besoin de map[int64]bool!)
+	//   - GROUP BY = une ligne de résultat par produit (agrégation)
+	//   - ORDER BY + LIMIT = tri et pagination côté DB (utilise index si disponible)
+	// PERFORMANCE: Query plan optimal si index sur (product_id, order_date)
 	query := `
 		SELECT p.id, p.name,
 		       COALESCE(SUM(oi.subtotal), 0) as total_revenue,
@@ -114,16 +125,25 @@ func (r *StatsQueryRepository) GetTopProducts(dateRange shareddomain.DateRange, 
 	}
 	defer rows.Close()
 
+	// MÉMOIRE: []*domain.ProductStats = slice de POINTEURS
+	//   - Chaque pointeur: 8 bytes
+	//   - Struct ProductStats allouée sur HEAP séparément
 	var stats []*domain.ProductStats
 	for rows.Next() {
+		// SYNTAXE: var ( ... ) = déclaration de plusieurs variables
+		//   - Variables locales sur la STACK (scope de la boucle)
+		//   - Réutilisées à chaque itération (pas d'allocation répétée)
+		// MÉMOIRE: Total ~56 bytes sur STACK par itération
 		var (
-			prodID       int64
-			prodName     string
-			totalRevenue float64
-			totalOrders  int
-			totalQty     int
+			prodID       int64   // 8 bytes
+			prodName     string  // 16 bytes (header)
+			totalRevenue float64 // 8 bytes
+			totalOrders  int     // 8 bytes
+			totalQty     int     // 8 bytes
 		)
 
+		// PERFORMANCE: Scan très rapide ici, seulement 'limit' rows (ex: 10)
+		//   - Vs V1 qui scannait potentiellement 100k rows!
 		if err := rows.Scan(&prodID, &prodName, &totalRevenue, &totalOrders, &totalQty); err != nil {
 			return nil, err
 		}
@@ -262,7 +282,14 @@ func (r *StatsQueryRepository) GetPaymentMethodDistribution(dateRange shareddoma
 }
 
 // GetAllOrderItems récupère tous les items de commande dans une période (pour V1 inefficace)
+// PERFORMANCE: ⚠️ Problème majeur - récupère TOUTES les lignes sans agrégation
+//   - Transfert réseau: Si 100k rows × 80 bytes = 8 MB de données transférées
+//   - Base de données fait un FULL SCAN puis envoie tout au client
+//   - Mieux: faire des GROUP BY en SQL pour agréger côté DB
 func (r *StatsQueryRepository) GetAllOrderItems(dateRange shareddomain.DateRange) ([]OrderItemData, error) {
+	// SYNTAXE SQL: $1, $2 = paramètres positionnels (protection contre SQL injection)
+	// PERFORMANCE: INNER JOIN = ok, mais manque de GROUP BY
+	//   - ORDER BY est coûteux sur gros volumes (nécessite tri en mémoire ou index)
 	query := `
 		SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.unit_price, oi.subtotal,
 		       o.order_date, o.customer_id, o.store_id, o.payment_method_id
@@ -271,16 +298,37 @@ func (r *StatsQueryRepository) GetAllOrderItems(dateRange shareddomain.DateRange
 		WHERE o.order_date >= $1 AND o.order_date <= $2
 		ORDER BY o.order_date DESC
 	`
-
+	// SYNTAXE: r.Query() exécute la requête et retourne un itérateur de lignes
+	// MÉMOIRE: rows est un curseur (léger), pas toutes les données en RAM immédiatement
+	//   - Mais on va tout charger dans []OrderItemData après (là c'est lourd!)
 	rows, err := r.Query(query, dateRange.Start(), dateRange.End())
 	if err != nil {
 		return nil, err
 	}
+
+	// SYNTAXE: defer = exécute à la fin de la fonction (comme finally en Java)
+	// IMPORTANT: Toujours Close() pour libérer la connexion DB au pool
+	//   - Sans defer, si erreur avant, connexion DB leak!
 	defer rows.Close()
 
+	// MÉMOIRE: []OrderItemData = slice sans capacité initiale
+	//   - Chaque append peut déclencher réallocation (x2 capacité)
+	//   - Mieux: items := make([]OrderItemData, 0, 10000) si on connaît la taille
 	var items []OrderItemData
+
+	// SYNTAXE: rows.Next() = avance au prochain résultat
+	//   - Retourne false quand plus de lignes ou erreur
+	// PERFORMANCE: Itération O(n), rien à optimiser ici
 	for rows.Next() {
 		var item OrderItemData
+
+		// SYNTAXE: rows.Scan(&variable) = lit les colonnes du SELECT dans les variables
+		//   - & nécessaire car Scan modifie les variables (passage par référence)
+		//   - L'ordre doit correspondre exactement à l'ordre du SELECT
+		// MÉMOIRE: Scan copie les données de la réponse SQL vers la struct
+		//   - Conversions: PostgreSQL types → Go types (int64, float64, string)
+		//   - Strings: allocation HEAP pour chaque string (OrderDate)
+		// PERFORMANCE: Scan est optimisé, mais copie obligatoire des données
 		if err := rows.Scan(
 			&item.ItemID, &item.OrderID, &item.ProductID, &item.Quantity,
 			&item.UnitPrice, &item.Subtotal, &item.OrderDate,
@@ -288,6 +336,13 @@ func (r *StatsQueryRepository) GetAllOrderItems(dateRange shareddomain.DateRange
 		); err != nil {
 			return nil, err
 		}
+
+		// SYNTAXE: append(slice, element) = ajoute élément à la fin
+		// MÉMOIRE: Si capacité insuffisante:
+		//   - Alloue nouveau tableau 2x plus grand
+		//   - Copie toutes les anciennes valeurs
+		//   - Ancien tableau sera GC plus tard
+		// PERFORMANCE: Coût amorti O(1), mais pics de latence possibles lors réallocation
 		items = append(items, item)
 	}
 
@@ -295,6 +350,20 @@ func (r *StatsQueryRepository) GetAllOrderItems(dateRange shareddomain.DateRange
 }
 
 // OrderItemData structure pour les données brutes d'items
+// MÉMOIRE: Calcul de la taille en mémoire:
+//   - ItemID: 8 bytes (int64)
+//   - OrderID: 8 bytes (int64)
+//   - ProductID: 8 bytes (int64)
+//   - Quantity: 8 bytes (int sur 64-bit, aligné)
+//   - UnitPrice: 8 bytes (float64)
+//   - Subtotal: 8 bytes (float64)
+//   - OrderDate: 16 bytes (string = pointer 8b + length 8b, data sur HEAP séparément)
+//   - CustomerID: 8 bytes (int64)
+//   - StoreID: 8 bytes (int64)
+//   - PaymentMethodID: 8 bytes (int64)
+//   - TOTAL: ~88 bytes par struct (sans compter les données string sur HEAP)
+//
+// PERFORMANCE: Struct assez grande, préférer passer par pointeur si beaucoup de copies
 type OrderItemData struct {
 	ItemID          int64
 	OrderID         int64
@@ -302,7 +371,7 @@ type OrderItemData struct {
 	Quantity        int
 	UnitPrice       float64
 	Subtotal        float64
-	OrderDate       string
+	OrderDate       string // String alloue sur HEAP séparément
 	CustomerID      int64
 	StoreID         int64
 	PaymentMethodID int64
