@@ -75,7 +75,12 @@ func (s *ExportServiceV1) ExportStatsToCSV(days int) ([]byte, error) {
 		return nil, err
 	}
 
+	// Création d’un nouveau buffer vide pour accumuler les données CSV. - stockés dans la Heap
 	buffer := &bytes.Buffer{}
+
+	//writer est une struct légère stockée sur la stack, contenant :
+	// une référence (io.Writer) vers le buffer (donc un pointeur vers le heap)
+	//un petit buffer interne de 4 KB environ pour écrire efficacement
 	writer := csv.NewWriter(buffer)
 
 	// En-têtes pour les stats globales

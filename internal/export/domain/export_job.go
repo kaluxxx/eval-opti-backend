@@ -26,10 +26,10 @@ const (
 
 // ExportJob représente un job d'export
 type ExportJob struct {
-	format    ExportFormat
+	format     ExportFormat
 	exportType ExportType
-	dateRange domain.DateRange
-	createdAt time.Time
+	dateRange  domain.DateRange
+	createdAt  time.Time
 }
 
 // NewExportJob crée un nouveau job d'export avec validation
@@ -75,22 +75,25 @@ func (ej *ExportJob) CreatedAt() time.Time {
 
 // SaleExportRow représente une ligne d'export de vente
 type SaleExportRow struct {
-	OrderID         int64
-	CustomerID      int64
-	StoreID         int64
-	StoreName       string
-	ProductID       int64
-	ProductName     string
-	CategoryName    string
-	Quantity        int
-	UnitPrice       float64
-	Subtotal        float64
-	PaymentMethod   string
-	PromotionCode   string
-	OrderDate       time.Time
+	OrderID       int64
+	CustomerID    int64
+	StoreID       int64
+	StoreName     string
+	ProductID     int64
+	ProductName   string
+	CategoryName  string
+	Quantity      int
+	UnitPrice     float64
+	Subtotal      float64
+	PaymentMethod string
+	PromotionCode string
+	OrderDate     time.Time
 }
 
 // NewSaleExportRow crée une nouvelle ligne d'export
+// C’est ce qu’on appelle un constructeur idiomatique en Go.
+// Même si Go n’a pas de mot-clé constructor, on suit ce pattern pour plusieurs raisons :
+// tu as un point unique pour créer les objets (pratique si tu veux ajouter des validations ou conversions plus tard)
 func NewSaleExportRow(
 	orderID, customerID, storeID, productID int64,
 	storeName, productName, categoryName string,
