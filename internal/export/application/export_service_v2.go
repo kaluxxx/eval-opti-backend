@@ -84,6 +84,7 @@ func (s *ExportServiceV2) ExportStatsToCSV(days int) ([]byte, error) {
 		return nil, err
 	}
 
+	// Un buffer est une zone temporaire en mémoire pour accumuler des données
 	buffer := bytes.NewBuffer(make([]byte, 0, 64*1024)) // 64 KB
 	writer := csv.NewWriter(buffer)
 

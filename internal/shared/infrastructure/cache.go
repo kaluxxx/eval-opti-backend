@@ -109,6 +109,14 @@ func (c *InMemoryCache) cleanupExpired() {
 }
 
 // ShardedCache cache avec sharding pour réduire la contention
+/*
+Cette fonction choisit dans quelle “partie” (shard) du cache la clé doit aller.
+C’est une technique pour diviser le cache en plusieurs morceaux (pour la concurrence).
+	fnv32(key) → transforme la clé en nombre
+	hash & sc.shardMask → calcule un index rapide
+	sc.shards[...] → récupère la sous-partie du cache correspondante
+Chaque shard a son propre RWMutex, donc les accès sont parallélisables.
+*/
 type ShardedCache struct {
 	shards    []*InMemoryCache
 	shardMask uint32
