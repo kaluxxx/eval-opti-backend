@@ -2,7 +2,6 @@ package domain
 
 import (
 	"errors"
-	"fmt"
 	"time"
 )
 
@@ -69,58 +68,4 @@ func (dr DateRange) Start() time.Time {
 // PATTERN: Getter pour champ privé (encapsulation)
 func (dr DateRange) End() time.Time {
 	return dr.end
-}
-
-// Duration retourne la durée de la période
-// SYNTAXE: time.Duration = int64 représentant des nanosecondes
-//   - Ex: 1 seconde = 1_000_000_000 nanoseconds
-//
-// PERFORMANCE: Sub() fait soustractions arithmétiques (très rapide, ~1ns)
-func (dr DateRange) Duration() time.Duration {
-	return dr.end.Sub(dr.start)
-}
-
-// DaysCount retourne le nombre de jours dans la période
-func (dr DateRange) DaysCount() int {
-	return int(dr.Duration().Hours() / 24)
-}
-
-// Contains vérifie si une date est dans la période
-// ALGO: date >= start && date <= end
-//   - !Before(start) équivaut à >= start
-//   - !After(end) équivaut à <= end
-//
-// PERFORMANCE: Comparaisons de time.Time très rapides (~2-3ns)
-//   - Compare d'abord wall clock, puis monotonic time
-func (dr DateRange) Contains(date time.Time) bool {
-	return !date.Before(dr.start) && !date.After(dr.end)
-}
-
-// Overlaps vérifie si deux périodes se chevauchent
-// ALGO: Deux intervalles [a,b] et [c,d] se chevauchent si:
-//   - a < d ET c < b
-//   - Cas exclus: [1-5] et [6-10] ne se chevauchent pas
-//
-// PERFORMANCE: 2 comparaisons de time.Time (~4-6ns total)
-func (dr DateRange) Overlaps(other DateRange) bool {
-	return dr.start.Before(other.end) && other.start.Before(dr.end)
-}
-
-// String retourne une représentation textuelle
-func (dr DateRange) String() string {
-	return fmt.Sprintf("%s to %s (%d days)",
-		dr.start.Format("2006-01-02"),
-		dr.end.Format("2006-01-02"),
-		dr.DaysCount())
-}
-
-// Equals vérifie l'égalité entre deux DateRange
-// PATTERN: Value Object equality basée sur les valeurs, pas les références
-// SYNTAXE: time.Time.Equal() au lieu de ==
-//   - Equal() gère correctement les time zones et monotonic clock
-//   - == comparerait les bytes bruts (incorrect pour time.Time)
-//
-// PERFORMANCE: 2 appels Equal() ~10-20ns total
-func (dr DateRange) Equals(other DateRange) bool {
-	return dr.start.Equal(other.start) && dr.end.Equal(other.end)
 }

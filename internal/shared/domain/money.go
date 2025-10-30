@@ -25,23 +25,9 @@ func NewMoney(amount float64, currency string) (Money, error) {
 	}, nil
 }
 
-// MustNewMoney crée un Money en paniquant si invalide (pour les constantes)
-func MustNewMoney(amount float64, currency string) Money {
-	m, err := NewMoney(amount, currency)
-	if err != nil {
-		panic(fmt.Sprintf("invalid money: %v", err))
-	}
-	return m
-}
-
 // Amount retourne le montant
 func (m Money) Amount() float64 {
 	return m.amount
-}
-
-// Currency retourne la devise
-func (m Money) Currency() string {
-	return m.currency
 }
 
 // Add additionne deux Money (même devise requise)
@@ -69,14 +55,4 @@ func (m Money) Multiply(factor float64) (Money, error) {
 // IsZero vérifie si le montant est zéro
 func (m Money) IsZero() bool {
 	return m.amount == 0
-}
-
-// String retourne une représentation textuelle
-func (m Money) String() string {
-	return fmt.Sprintf("%.2f %s", m.amount, m.currency)
-}
-
-// Equals vérifie l'égalité entre deux Money
-func (m Money) Equals(other Money) bool {
-	return m.amount == other.amount && m.currency == other.currency
 }
