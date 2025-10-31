@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 
 	"eval/internal/analytics/application"
@@ -204,10 +206,28 @@ func (s *ExportServiceV2) ExportToParquet(days int) ([]byte, error) {
 				batchNum, batchStart+1, batchEnd))
 
 			for _, row := range batch {
-				// Simuler l'encodage Parquet (ici en texte pour démonstration)
-				line := fmt.Sprintf("Order: %s | Product: %s | Qty: %d | Amount: %.2f | Date: %s\n",
-					row.OrderID, row.ProductName, row.Quantity, row.UnitPrice*float64(row.Quantity),
-					row.OrderDate.Format("2006-01-02"))
+
+				// Utilisation de strings.Builder pour construire la ligne efficacement.
+				// - Grow pré-alloue la capacité pour éviter les réallocations et copies successives.
+				// - WriteString + strconv écrivent directement dans le buffer sans créer de chaînes temporaires.
+				// - fmt.Sprintf analyse le format et alloue des strings temporaires (plus coûteux en CPU et GC).
+				// - Réduction des allocations entraîne moins de pression GC et un meilleur débit pour les exports volumineux.
+				var builder = strings.Builder{}
+				builder.Grow(256)
+				builder.WriteString("Order: ")
+				builder.WriteString(strconv.FormatInt(row.OrderID, 10))
+				builder.WriteString(" | Product: ")
+				builder.WriteString(row.ProductName)
+				builder.WriteString(" | Qty: ")
+				builder.WriteString(strconv.Itoa(row.Quantity))
+				builder.WriteString(" | Amount: ")
+				builder.WriteString(fmt.Sprintf("%.2f", row.UnitPrice*float64(row.Quantity)))
+				builder.WriteString(" | Date: ")
+				builder.WriteString(row.OrderDate.Format("2006-01-02"))
+				builder.WriteString("\n")
+
+				line := builder.String()
+
 				batchBuffer.WriteString(line)
 			}
 

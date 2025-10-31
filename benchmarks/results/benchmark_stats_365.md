@@ -1,4 +1,4 @@
-| Command | Mean [s] | Min [s] | Max [s] | Relative |
+| Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
 |:---|---:|---:|---:|---:|
-| `V1 (N+1 + Bubble Sort)` | 7.062 ± 0.028 | 7.023 | 7.126 | 362.83 ± 25.58 |
-| `V2 (JOINs + SQL ORDER BY)` | 0.019 ± 0.001 | 0.017 | 0.022 | 1.00 |
+| `V1 (N+1 + Bubble Sort)` | 827.6 ± 65.7 | 721.1 | 957.3 | 38.37 ± 4.47 |
+| `V2 (JOINs + SQL ORDER BY)` | 21.6 ± 1.8 | 19.6 | 25.8 | 1.00 |

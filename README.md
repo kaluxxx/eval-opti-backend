@@ -198,16 +198,45 @@ go test ./...
 go test ./internal/analytics/application/...
 ```
 
-### Benchmarks Go
-```bash
-# Benchmarks avec mémoire
-go test -bench=. -benchmem ./...
+### Benchmarks Go (NOUVEAUX - avec PostgreSQL)
 
-# Benchmarks comparatifs V1 vs V2
-go test -bench=. ./v1 ./v2 -benchmem
+Le projet inclut maintenant des **benchmarks d'intégration** qui mesurent les performances réelles avec PostgreSQL :
+
+```bash
+# Benchmarks d'intégration Export Service (avec DB)
+go test -bench=BenchmarkExportServiceV2_RealDB -benchmem ./internal/export/application/
+
+# Benchmarks d'intégration Stats Service (avec cache)
+go test -bench=BenchmarkStatsServiceV2_RealDB -benchmem ./internal/analytics/application/
+
+# Comparaison directe V1 vs V2
+go test -bench=BenchmarkComparison_V1_vs_V2 -benchmem ./internal/export/application/
+
+# Benchmarks unitaires (sans DB - plus rapides)
+go test -bench=. -benchmem ./internal/shared/infrastructure/
 ```
 
-### Benchmarks Hyperfine
+**Script PowerShell automatisé** :
+```powershell
+# Tous les benchmarks d'intégration
+.\benchmarks\scripts\run-go-benchmarks.ps1 -Integration
+
+# Export uniquement
+.\benchmarks\scripts\run-go-benchmarks.ps1 -Package export -Integration
+
+# Avec profiling CPU
+.\benchmarks\scripts\run-go-benchmarks.ps1 -Package stats -Profile cpu
+
+# Sauvegarder pour comparaison
+.\benchmarks\scripts\run-go-benchmarks.ps1 -Count 10 -Save
+
+# Afficher l'aide
+.\benchmarks\scripts\run-go-benchmarks.ps1 -Help
+```
+
+Voir [docs/BENCHMARKS.md](docs/BENCHMARKS.md) pour le guide complet.
+
+### Benchmarks Hyperfine (HTTP end-to-end)
 ```powershell
 # Windows PowerShell
 .\benchmarks\scripts\benchmark.ps1
@@ -286,7 +315,8 @@ Pour démontrer l'impact des optimisations, V1 conserve volontairement :
 
 ## 📚 Documentation
 
-- [Benchmarking Guide](docs/BENCHMARK.md) - Guide d'utilisation des benchmarks
+- **[Go Benchmarks Guide](docs/BENCHMARKS.md)** - Guide complet des benchmarks Go (NOUVEAU)
+- [Benchmarking Guide](docs/BENCHMARK.md) - Guide d'utilisation des benchmarks Hyperfine
 - [Performance Results](docs/RESULTS.md) - Résultats de performance détaillés
 - [Optimisations](docs/OPTIMISATIONS.md) - Détails des optimisations implémentées
 - [Profiling Guide](profiling/PROFILING.md) - Guide d'utilisation pprof
